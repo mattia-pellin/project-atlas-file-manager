@@ -1,0 +1,22 @@
+.git
+.gitignore
+.env
+README.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.cache/
+backend/.cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.npm/
+npm-debug.log*
+
+# OS/IDE
+.DS_Store
+.vscode/
+.idea/

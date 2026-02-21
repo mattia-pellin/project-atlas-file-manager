@@ -1,0 +1,14 @@
+services:
+  plex-file-manager:
+    build: .
+    container_name: plex-file-manager
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - TVDB_API_KEY=${TVDB_API_KEY}
+      - TVDB_PIN=${TVDB_PIN}
+      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
+    volumes:
+      - ${MEDIA_DIR}:/media:rw
+    restart: unless-stopped
