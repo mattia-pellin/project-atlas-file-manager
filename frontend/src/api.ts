@@ -11,7 +11,7 @@ export interface MediaItem {
     proposed_name?: string;
     tmdb_id?: number;
     tvdb_id?: number;
-    status: 'pending' | 'renaming' | 'error' | 'success';
+    status: 'pending' | 'matched' | 'renaming' | 'error' | 'success';
     message?: string;
 }
 

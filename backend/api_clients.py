@@ -1,5 +1,6 @@
 import os
 import httpx
+import asyncio
 from typing import List, Optional, Dict, Any
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, retry_if_exception
 
@@ -24,6 +25,14 @@ def get_cache_key(prefix: str, *args, **kwargs) -> str:
     if kwargs:
         key += ":" + ":".join(f"{k}={v}" for k, v in sorted(kwargs.items()))
     return key
+
+# Locks to prevent concurrent API flooding for the exact same resource
+_search_locks: Dict[str, asyncio.Lock] = {}
+
+def get_lock(key: str) -> asyncio.Lock:
+    if key not in _search_locks:
+        _search_locks[key] = asyncio.Lock()
+    return _search_locks[key]
 
 
 class TMDBClient:
@@ -116,31 +125,118 @@ class TVDBClientV4:
         if not bypass_cache and cache_key in cache:
             return cache[cache_key]
             
-        token = await self.get_token(bypass_cache)
-        if not token:
+        lock = get_lock(cache_key)
+        async with lock:
+            # Recheck cache inside lock to avoid redundant work
+            if not bypass_cache and cache_key in cache:
+                return cache[cache_key]
+
+            token = await self.get_token(bypass_cache)
+            if not token:
+                return None
+                
+            params = {"query": title, "type": "series"}
+            
+            try:
+                data = await self._request("/search", token, params)
+                if data.get("data"):
+                    # For now just grab the first valid result ID to query translations
+                    result = data["data"][0]
+                    
+                    # We fetch extended info to get language specific translation
+                    series_id = result.get("tvdb_id")
+                    series_data = await self.get_series_extended(series_id, language_prefs, token, bypass_cache)
+                    
+                    cache.set(cache_key, series_data, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+                    return series_data
+            except Exception as e:
+                print(f"TVDB search failed: {e}")
+                
+            cache.set(cache_key, None, expire=3600)
             return None
-            
-        params = {"query": title, "type": "series"}
         
-        try:
-            data = await self._request("/search", token, params)
-            if data.get("data"):
-                # For now just grab the first valid result ID to query translations
-                result = data["data"][0]
-                
-                # We fetch extended info to get language specific translation
-                series_id = result.get("tvdb_id")
-                series_data = await self.get_series_extended(series_id, language_prefs, token, bypass_cache)
-                
-                cache.set(cache_key, series_data, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
-                return series_data
-        except Exception as e:
-            print(f"TVDB search failed: {e}")
+    async def get_episode_translation(self, ep_id: int, language_prefs: List[str], bypass_cache: bool = False) -> Optional[str]:
+        cache_key = get_cache_key("tvdb_ep_trans", ep_id, ",".join(language_prefs))
+        if not bypass_cache and cache_key in cache:
+            val = cache[cache_key]
+            return val if val != "__NONE__" else None
             
-        return None
+        lock = get_lock(cache_key)
+        async with lock:
+            if not bypass_cache and cache_key in cache:
+                val = cache[cache_key]
+                return val if val != "__NONE__" else None
+
+            token = await self.get_token(bypass_cache)
+            if not token:
+                return None
+                
+            lang_map = {
+                "it": "ita", "en": "eng", "fr": "fra", "es": "spa", "de": "deu",
+                "ja": "jpn", "zh": "zho", "nl": "nld", "ru": "rus", "fi": "fin",
+                "sv": "swe", "da": "dan", "hu": "hun", "pt": "por", "pl": "pol"
+            }
+                
+            for lang in language_prefs:
+                tvdb_lang = lang_map.get(lang.lower(), lang.lower())
+                
+                try:
+                    data = await self._request(f"/episodes/{ep_id}/translations/{tvdb_lang}", token)
+                    name = data.get("data", {}).get("name")
+                    if name:
+                        cache.set(cache_key, name, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+                        return name
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 404:
+                        continue
+                    print(f"TVDB ep translation err for {lang}: {e}")
+                except Exception as e:
+                    print(f"TVDB ep translation err: {e}")
+                    
+            cache.set(cache_key, "__NONE__", expire=3600)
+            return None
+
+    async def get_series_translation(self, series_id: int, language_prefs: List[str], bypass_cache: bool = False) -> Optional[str]:
+        cache_key = get_cache_key("tvdb_series_trans", series_id, ",".join(language_prefs))
+        if not bypass_cache and cache_key in cache:
+            val = cache[cache_key]
+            return val if val != "__NONE__" else None
+            
+        lock = get_lock(cache_key)
+        async with lock:
+            if not bypass_cache and cache_key in cache:
+                val = cache[cache_key]
+                return val if val != "__NONE__" else None
+
+            token = await self.get_token(bypass_cache)
+            if not token:
+                return None
+                
+            lang_map = {
+                "it": "ita", "en": "eng", "fr": "fra", "es": "spa", "de": "deu",
+                "ja": "jpn", "zh": "zho", "nl": "nld", "ru": "rus", "fi": "fin",
+                "sv": "swe", "da": "dan", "hu": "hun", "pt": "por", "pl": "pol"
+            }
+                
+            for lang in language_prefs:
+                tvdb_lang = lang_map.get(lang.lower(), lang.lower())
+                try:
+                    data = await self._request(f"/series/{series_id}/translations/{tvdb_lang}", token)
+                    name = data.get("data", {}).get("name")
+                    if name:
+                        cache.set(cache_key, name, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+                        return name
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 404:
+                        continue
+                except Exception:
+                    pass
+                    
+            cache.set(cache_key, "__NONE__", expire=3600)
+            return None
 
     async def get_series_extended(self, series_id: int, language_prefs: List[str], token: str, bypass_cache: bool = False) -> Optional[Dict[str, Any]]:
-        cache_key = get_cache_key("tvdb_series_ext", series_id, ",".join(language_prefs))
+        cache_key = get_cache_key("tvdb_series_ext_v2", series_id, ",".join(language_prefs))
         if not bypass_cache and cache_key in cache:
             return cache[cache_key]
             
@@ -148,27 +244,40 @@ class TVDBClientV4:
             data = await self._request(f"/series/{series_id}/extended", token)
             series_info = data.get("data", {})
             
+            episodes = series_info.get("episodes")
+            
+            # TVDB v4 completely omits episodes in extended payload for massive series > 500 eps (like SpongeBob)
+            # We must fetch them manually using the paginated episodes endpoint
+            if episodes is None:
+                episodes = []
+                page = 0
+                while True:
+                    ep_data = await self._request(f"/series/{series_id}/episodes/default", token, params={"page": page})
+                    page_eps = ep_data.get("data", {}).get("episodes", [])
+                    episodes.extend(page_eps)
+                    
+                    links = ep_data.get("links", {})
+                    if links.get("next") and links.get("next") != links.get("self"):
+                        page += 1
+                    else:
+                        break
+                        
             # Extract total episodes for padding calculation across all seasons
-            total_eps = 0
-            episodes = series_info.get("episodes", [])
             season_arrays = [ep for ep in episodes if ep.get("seasonNumber", 0) > 0]
             total_eps = len(season_arrays)
             
-            # Find closest translation
-            best_translation = series_info.get("name")
-            translations = series_info.get("translations", {}).get("nameTranslations", [])
-            for lang in language_prefs:
-                # TVDB uses 'ita', 'eng' style (3-letter usually), adapting from 2 letter logic 
-                # This could be refined based on TVDB exact lang format
-                match = next((t.get("name") for t in translations if t.get("language") and t.get("language").startswith(lang)), None)
-                if match:
-                    best_translation = match
-                    break
+            # Fetch localized series translation
+            series_translation = await self.get_series_translation(series_id, language_prefs, bypass_cache)
+
+            year_raw = series_info.get("year", "")
+            first_aired = series_info.get("firstAired", "")
+            year = year_raw or (first_aired[:4] if first_aired else None)
 
             result = {
-                "name": best_translation or series_info.get("name"),
+                "name": series_translation or series_info.get("name"),
                 "total_episodes": total_eps,
-                "episodes_raw": episodes # Store raw for episode lookups
+                "episodes_raw": episodes,
+                "year": year
             }
             cache.set(cache_key, result, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
             return result

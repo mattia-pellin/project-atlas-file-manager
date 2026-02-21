@@ -21,7 +21,7 @@ export const MediaTable: React.FC<MediaTableProps> = ({
         {
             field: 'media_type', headerName: 'Type', width: 100, editable: true, type: 'singleSelect', valueOptions: ['movie', 'episode', 'unknown'],
             renderCell: (params: GridRenderCellParams) => (
-                <Chip size="small" label={params.value} color={params.value === 'movie' ? 'primary' : 'secondary'} />
+                <Chip size="small" label={params.value} sx={params.value === 'movie' ? {} : { bgcolor: '#e65100', color: 'white' }} color={params.value === 'movie' ? 'primary' : 'default'} />
             )
         },
         { field: 'original_name', headerName: 'Original Name', flex: 1, minWidth: 200 },
@@ -33,8 +33,9 @@ export const MediaTable: React.FC<MediaTableProps> = ({
         {
             field: 'status', headerName: 'Status', width: 120,
             renderCell: (params: GridRenderCellParams) => {
-                const colorMap: any = {
+                const colorMap: Record<string, 'default' | 'success' | 'error' | 'warning' | 'info'> = {
                     'pending': 'default',
+                    'matched': 'info',
                     'success': 'success',
                     'error': 'error',
                     'renaming': 'warning'

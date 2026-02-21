@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMediaQuery, ThemeProvider, createTheme, CssBaseline, Box, Typography, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Slider, Stack } from '@mui/material';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
@@ -73,10 +73,26 @@ function App() {
         { id: 'en-init', input: 'en', name: 'English', code: 'en' }
     ]);
 
-    const [items, setItems] = useState<MediaItem[]>([]);
+    const [items, setItems] = useState<MediaItem[]>(() => {
+        const saved = localStorage.getItem('atlas_media_items');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error('Failed to parse saved items from localStorage');
+            }
+        }
+        return [];
+    });
+
+    useEffect(() => {
+        localStorage.setItem('atlas_media_items', JSON.stringify(items));
+    }, [items]);
+
     const [selectionModel, setSelectionModel] = useState<GridRowSelectionModel>([]);
 
     const [isScanning, setIsScanning] = useState<boolean>(false);
+    const [isReanalyzing, setIsReanalyzing] = useState<boolean>(false);
     const [isRenaming, setIsRenaming] = useState<boolean>(false);
 
     const [snackbar, setSnackbar] = useState<{ open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning' }>({ open: false, message: '', severity: 'info' });
@@ -131,23 +147,45 @@ function App() {
             setItems(sortMediaItems(foundItems));
             showMessage(`Found ${foundItems.length} media files. Analyzing...`, 'info');
 
-            // Step 2: Analyze sequentially to avoid hammering API too aggressively
-            // We could batch this, but for UX, seeing them pop up is nice
+            // Step 2: Analyze concurrently for maximum speed, while visually updating the table progressively
             const updatedItems = [...foundItems];
-            for (let i = 0; i < updatedItems.length; i++) {
+
+            const analyzePromises = foundItems.map(async (item) => {
                 try {
-                    const analyzed = await analyzeItem(updatedItems[i], bypassCache, langStr);
-                    updatedItems[i] = analyzed;
-                    setItems([...updatedItems]);
+                    const analyzed = await analyzeItem(item, bypassCache, langStr);
+                    setItems(prev => {
+                        const next = [...prev];
+                        const idx = next.findIndex(x => x.id === item.id);
+                        if (idx !== -1) next[idx] = analyzed;
+                        return next;
+                    });
+                    const idx = updatedItems.findIndex(x => x.id === item.id);
+                    if (idx !== -1) updatedItems[idx] = analyzed;
                 } catch (e: any) {
-                    updatedItems[i].status = 'error';
-                    updatedItems[i].message = 'Analysis failed';
-                    setItems([...updatedItems]);
+                    setItems(prev => {
+                        const next = [...prev];
+                        const idx = next.findIndex(x => x.id === item.id);
+                        if (idx !== -1) {
+                            next[idx].status = 'error';
+                            next[idx].message = 'Analysis failed';
+                        }
+                        return next;
+                    });
+                    const idx = updatedItems.findIndex(x => x.id === item.id);
+                    if (idx !== -1) {
+                        updatedItems[idx].status = 'error';
+                        updatedItems[idx].message = 'Analysis failed';
+                    }
                 }
-            }
+            });
+
+            await Promise.all(analyzePromises);
+
+            const finalSortedItems = sortMediaItems(updatedItems);
+            setItems(finalSortedItems);
             showMessage('Analysis complete', 'success');
             // Auto-select successes for rename
-            setSelectionModel(updatedItems.filter(i => i.status === 'pending').map(i => i.id));
+            setSelectionModel(finalSortedItems.filter(i => i.status === 'matched').map(i => i.id));
         } catch (e: any) {
             showMessage(`Scan failed: ${e.message}`, 'error');
         } finally {
@@ -185,30 +223,46 @@ function App() {
         const selectedItems = items.filter(i => selectionModel.includes(i.id));
         if (selectedItems.length === 0) return;
 
-        setIsScanning(true);
+        setIsReanalyzing(true);
         showMessage(`Re-analyzing ${selectedItems.length} items with overrides...`, 'info');
 
-        const updatedItems = [...items];
         let errorCount = 0;
 
         const langStr = langPins.filter(p => p.code).map(p => p.code).join(',');
 
-        for (let selectedItem of selectedItems) {
-            const index = updatedItems.findIndex(i => i.id === selectedItem.id);
-            if (index !== -1) {
-                try {
-                    const analyzed = await analyzeItem(updatedItems[index], bypassCache, langStr);
-                    updatedItems[index] = analyzed;
-                } catch (e: any) {
-                    updatedItems[index].status = 'error';
-                    updatedItems[index].message = 'Re-analysis failed';
-                    errorCount++;
-                }
-                setItems([...updatedItems]);
-            }
-        }
+        // Set selected items to pending immediately for visual feedback
+        setItems(prev => prev.map(item =>
+            selectionModel.includes(item.id)
+                ? { ...item, status: 'pending', message: undefined }
+                : item
+        ));
 
-        setIsScanning(false);
+        const analyzePromises = selectedItems.map(async (selectedItem) => {
+            try {
+                const analyzed = await analyzeItem(selectedItem, bypassCache, langStr);
+                setItems(prev => {
+                    const next = [...prev];
+                    const idx = next.findIndex(x => x.id === selectedItem.id);
+                    if (idx !== -1) next[idx] = analyzed;
+                    return next;
+                });
+            } catch (e: any) {
+                errorCount++;
+                setItems(prev => {
+                    const next = [...prev];
+                    const idx = next.findIndex(x => x.id === selectedItem.id);
+                    if (idx !== -1) {
+                        next[idx].status = 'error';
+                        next[idx].message = 'Re-analysis failed';
+                    }
+                    return next;
+                });
+            }
+        });
+
+        await Promise.all(analyzePromises);
+
+        setIsReanalyzing(false);
         if (errorCount === 0) {
             showMessage(`Successfully re-analyzed ${selectedItems.length} items.`, 'success');
         } else {
@@ -292,15 +346,14 @@ function App() {
                     onScan={handleScan}
                     onRename={() => setConfirmOpen(true)}
                     onReAnalyze={handleReAnalyze}
-                    isScanning={isScanning || isRenaming}
+                    onRestoreSort={handleRestoreSort}
+                    onClear={() => setItems([])}
+                    hasItems={items.length > 0}
+                    isScanning={isScanning}
+                    isReanalyzing={isReanalyzing}
+                    isRenaming={isRenaming}
                     selectedCount={selectionModel.length}
                 />
-
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-                    <Button variant="text" size="small" onClick={handleRestoreSort} disabled={items.length === 0}>
-                        Restore Default Sort
-                    </Button>
-                </Box>
 
                 <Box sx={{ flexGrow: 1, minHeight: 0 }}>
                     <MediaTable
