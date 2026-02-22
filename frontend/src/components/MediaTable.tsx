@@ -1,6 +1,7 @@
 import React from 'react';
 import { DataGrid, GridColDef, GridRowSelectionModel, GridRenderCellParams, useGridApiRef } from '@mui/x-data-grid';
-import { Chip, Box, Tooltip } from '@mui/material';
+import { Chip, Box, Tooltip, useTheme } from '@mui/material';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { MediaItem } from '../api';
 import { motion } from 'framer-motion';
 
@@ -59,25 +60,65 @@ export const MediaTable: React.FC<MediaTableProps> = ({
     showMessage
 }) => {
     const apiRef = useGridApiRef();
+    const theme = useTheme();
+
+    const renderCellWithError = (params: GridRenderCellParams, isValid: boolean) => {
+        return (
+            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}>
+                <Box sx={{ flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {params.formattedValue}
+                </Box>
+                {!isValid && (
+                    <Tooltip title="Formato Valore Invalido">
+                        <ErrorOutlineIcon color="error" fontSize="small" sx={{ ml: 1, opacity: 0.8 }} />
+                    </Tooltip>
+                )}
+            </Box>
+        );
+    };
 
     const columns: GridColDef[] = [
         {
             field: 'media_type', headerName: 'Type', width: 100, editable: true, type: 'singleSelect', valueOptions: ['movie', 'episode', 'unknown'],
             cellClassName: (params) => (params.value !== 'movie' && params.value !== 'episode') ? 'cell-error' : '',
-            renderCell: (params: GridRenderCellParams) => (
-                <Chip size="small" label={params.value} sx={params.value === 'movie' ? {} : { bgcolor: '#e65100', color: 'white' }} color={params.value === 'movie' ? 'primary' : 'default'} />
-            )
+            renderCell: (params: GridRenderCellParams) => {
+                const isMovie = params.value === 'movie';
+                const isEpisode = params.value === 'episode';
+                const isValid = isMovie || isEpisode;
+
+                return (
+                    <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}>
+                        <Chip
+                            size="small"
+                            label={params.value}
+                            color={isMovie ? 'primary' : 'default'}
+                            sx={
+                                isMovie ? {} :
+                                    isEpisode ? { bgcolor: '#e65100', color: 'white' } :
+                                        { bgcolor: theme.palette.mode === 'dark' ? 'error.dark' : 'error.light', color: 'error.contrastText' }
+                            }
+                        />
+                        {!isValid && (
+                            <Tooltip title="Tipo Sconosciuto">
+                                <ErrorOutlineIcon color="error" fontSize="small" sx={{ ml: 1, opacity: 0.8 }} />
+                            </Tooltip>
+                        )}
+                    </Box>
+                );
+            }
         },
         { field: 'original_name', headerName: 'Original Name', flex: 1, minWidth: 200 },
         { field: 'clean_title', headerName: 'Title', width: 250, editable: true },
         { field: 'year', headerName: 'Year', width: 80, editable: true, type: 'number' },
         {
             field: 'season', headerName: 'Season', width: 80, editable: true, type: 'number',
-            cellClassName: (params) => (params.row.media_type === 'episode' && !isSeasonValid(params.value)) ? 'cell-error' : ''
+            cellClassName: (params) => (params.row.media_type === 'episode' && !isSeasonValid(params.value)) ? 'cell-error' : '',
+            renderCell: (params) => renderCellWithError(params, !(params.row.media_type === 'episode' && !isSeasonValid(params.value)))
         },
         {
             field: 'episode', headerName: 'Episode', width: 100, editable: true,
-            cellClassName: (params) => (params.row.media_type === 'episode' && !isEpisodeValid(params.value)) ? 'cell-error' : ''
+            cellClassName: (params) => (params.row.media_type === 'episode' && !isEpisodeValid(params.value)) ? 'cell-error' : '',
+            renderCell: (params) => renderCellWithError(params, !(params.row.media_type === 'episode' && !isEpisodeValid(params.value)))
         },
         { field: 'proposed_name', headerName: 'Proposed Name', width: 350, editable: true },
         {
@@ -181,11 +222,13 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                         outlineOffset: '-2px',
                     },
                     '& .cell-error': {
-                        bgcolor: '#ffebee',
-                        color: '#c62828',
-                        fontWeight: 'bold',
+                        color: 'error.main',
+                        outline: '1px solid',
+                        outlineColor: 'error.main',
+                        outlineOffset: '-1px',
+                        backgroundColor: theme.palette.mode === 'dark' ? 'rgba(211, 47, 47, 0.15)' : 'rgba(211, 47, 47, 0.05)',
                         '&:hover': {
-                            bgcolor: '#ffcdd2',
+                            backgroundColor: theme.palette.mode === 'dark' ? 'rgba(211, 47, 47, 0.25)' : 'rgba(211, 47, 47, 0.1)',
                         }
                     }
                 }}
