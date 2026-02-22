@@ -42,9 +42,16 @@ const isEpisodeValid = (episode: any) => {
     return false;
 };
 
+const isYearValid = (year: any) => {
+    if (year === undefined || year === null || year === '') return true;
+    const num = Number(year);
+    return Number.isInteger(num) && num >= 1900 && num <= 2100;
+};
+
 const isRowValid = (row: MediaItem) => {
     if (row.original_name === row.proposed_name) return false;
     if (row.media_type !== 'movie' && row.media_type !== 'episode') return false;
+    if (!isYearValid(row.year)) return false;
     if (row.media_type === 'episode') {
         if (!isSeasonValid(row.season)) return false;
         if (!isEpisodeValid(row.episode)) return false;
@@ -84,7 +91,6 @@ export const MediaTable: React.FC<MediaTableProps> = ({
             renderCell: (params: GridRenderCellParams) => {
                 const isMovie = params.value === 'movie';
                 const isEpisode = params.value === 'episode';
-                const isValid = isMovie || isEpisode;
 
                 return (
                     <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}>
@@ -98,18 +104,17 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                                         { bgcolor: theme.palette.mode === 'dark' ? 'error.dark' : 'error.light', color: 'error.contrastText' }
                             }
                         />
-                        {!isValid && (
-                            <Tooltip title="Tipo Sconosciuto">
-                                <ErrorOutlineIcon color="error" fontSize="small" sx={{ ml: 1, opacity: 0.8 }} />
-                            </Tooltip>
-                        )}
                     </Box>
                 );
             }
         },
         { field: 'original_name', headerName: 'Original Name', flex: 1, minWidth: 200 },
         { field: 'clean_title', headerName: 'Title', width: 250, editable: true },
-        { field: 'year', headerName: 'Year', width: 80, editable: true, type: 'number' },
+        {
+            field: 'year', headerName: 'Year', width: 80, editable: true, type: 'number',
+            cellClassName: (params) => !isYearValid(params.value) ? 'cell-error' : '',
+            renderCell: (params) => renderCellWithError(params, isYearValid(params.value))
+        },
         {
             field: 'season', headerName: 'Season', width: 80, editable: true, type: 'number',
             cellClassName: (params) => (params.row.media_type === 'episode' && !isSeasonValid(params.value)) ? 'cell-error' : '',
@@ -164,6 +169,10 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                         // Prevent the page from scrolling
                         event.preventDefault();
                         event.defaultMuiPrevented = true; // Prevent internal DataGrid navigation
+
+                        // Block selection if row is invalid
+                        if (!isRowValid(params.row)) return;
+
                         // Toggle row selection
                         const isSelected = selectionModel.includes(params.id);
                         if (isSelected) {
