@@ -8,7 +8,9 @@ import re
 def sanitize_name(name: str) -> str:
     if not name:
         return ""
-    name = re.sub(r'[\\/]', '-', name)
+    # Convert ':', '\', '/' to space
+    name = re.sub(r'[:\\/]', ' ', name)
+    # Remove '*', '?', '"', '<', '>', '|'
     name = re.sub(r'[*?"<>|]', '', name)
     name = re.sub(r'\s+', ' ', name).strip()
     return name
@@ -44,7 +46,7 @@ def format_smart_title(text: str) -> str:
         if prefix and prefix[-1] in [':', '-']:
             return word
             
-        if word_lower in LOWERCASE_WORDS:
+        if word_lower in LOWERCASE_WORDS or word_lower == 'l':
             return word_lower
             
         return word

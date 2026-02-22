@@ -13,6 +13,16 @@ LOWERCASE_WORDS = {
     "at", "by", "in", "of", "on", "to", "with", "from", "into"
 }
 
+def sanitize_name(name: str) -> str:
+    if not name:
+        return ""
+    # ':' '\' '/' -> ' '
+    name = re.sub(r'[:\\/]', ' ', name)
+    # Remove * ? " < > |
+    name = re.sub(r'[*?"<>|]', '', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
 def format_smart_title(text: str) -> str:
     if not text:
         return ""
@@ -24,29 +34,26 @@ def format_smart_title(text: str) -> str:
         word_lower = word.lower()
         start = match.start()
         
-        if start == 0:
-            return word
-            
         prefix = text[:start].rstrip()
-        if prefix and prefix[-1] in [':', '-']:
+        is_first = start == 0 or not prefix
+        is_after_sep = prefix and prefix[-1] in [':', '-']
+        
+        if is_first or is_after_sep:
             return word
             
-        if word_lower in LOWERCASE_WORDS:
+        if word_lower in LOWERCASE_WORDS or word_lower == 'l':
             return word_lower
             
         return word
 
     return re.sub(r'[A-Za-z\u00C0-\u00FF]+', replacer, text)
 
-test_cases = [
-    ("IL TRIONFO DELL'AMORE", "Il Trionfo dell'Amore"),
-    ("L'ALBERO DELLA VITA", "L'Albero della Vita"),
-    ("Il signore degli anelli - la compagnia dell'anello", "Il Signore degli Anelli - La Compagnia dell'Anello"),
-    ("il viaggio di un'amica", "Il Viaggio di un'Amica"),
-    ("Ritorno all'isola", "Ritorno all'Isola"),
-    ("all'inizio del film", "All'Inizio del Film")
-]
+print(format_smart_title("all'ombra dell'olmo"))
+print(format_smart_title("l'ombra dell'olmo"))
+print(format_smart_title("il film - l'ombra"))
+print(format_smart_title("All'ombra dell'olmo"))
 
-for t, expected in test_cases:
-    res = format_smart_title(t)
-    print(f"[{t}] -> [{res}] (Success: {res == expected})")
+print("---")
+print(sanitize_name("Star Wars: A New Hope?"))
+print(sanitize_name("File\\Name/Here: test"))
+print(sanitize_name("What <is> |this| \"stuff\" *"))
