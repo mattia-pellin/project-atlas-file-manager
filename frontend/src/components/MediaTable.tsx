@@ -1,5 +1,5 @@
 import React from 'react';
-import { DataGrid, GridColDef, GridRowSelectionModel, GridRenderCellParams } from '@mui/x-data-grid';
+import { DataGrid, GridColDef, GridRowSelectionModel, GridRenderCellParams, useGridApiRef } from '@mui/x-data-grid';
 import { Chip, Box, Tooltip } from '@mui/material';
 import { MediaItem } from '../api';
 import { motion } from 'framer-motion';
@@ -9,14 +9,18 @@ interface MediaTableProps {
     selectionModel: GridRowSelectionModel;
     onSelectionModelChange: (model: GridRowSelectionModel) => void;
     processRowUpdate: (newRow: MediaItem, oldRow: MediaItem) => MediaItem;
+    showMessage: (message: string, severity: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 export const MediaTable: React.FC<MediaTableProps> = ({
     items,
     selectionModel,
     onSelectionModelChange,
-    processRowUpdate
+    processRowUpdate,
+    showMessage
 }) => {
+    const apiRef = useGridApiRef();
+
     const columns: GridColDef[] = [
         {
             field: 'media_type', headerName: 'Type', width: 100, editable: true, type: 'singleSelect', valueOptions: ['movie', 'episode', 'unknown'],
@@ -57,24 +61,9 @@ export const MediaTable: React.FC<MediaTableProps> = ({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
             style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}
-            onKeyDown={(e) => {
-                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                    // Small delay to let DataGrid finish shifting focus
-                    setTimeout(() => {
-                        const activeElement = document.activeElement;
-                        const row = activeElement?.closest('.MuiDataGrid-row');
-                        if (row) {
-                            const rowId = row.getAttribute('data-id');
-                            if (rowId) {
-                                // Sync the row selection strictly to the newly focused row
-                                onSelectionModelChange([rowId]);
-                            }
-                        }
-                    }, 10);
-                }
-            }}
         >
             <DataGrid
+                apiRef={apiRef}
                 rows={items}
                 columns={columns}
                 checkboxSelection
@@ -82,6 +71,53 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                 onRowSelectionModelChange={onSelectionModelChange}
                 rowSelectionModel={selectionModel}
                 processRowUpdate={processRowUpdate}
+                onCellKeyDown={(params, event) => {
+                    if (event.code === 'Space') {
+                        // Prevent the page from scrolling
+                        event.preventDefault();
+                        event.defaultMuiPrevented = true; // Prevent internal DataGrid navigation
+                        // Toggle row selection
+                        const isSelected = selectionModel.includes(params.id);
+                        if (isSelected) {
+                            onSelectionModelChange(selectionModel.filter(id => id !== params.id));
+                        } else {
+                            onSelectionModelChange([...selectionModel, params.id]);
+                        }
+                    } else if (event.code === 'F2') {
+                        // If it's an editable cell, explicitly start editing using apiRef
+                        if (params.isEditable) {
+                            event.defaultMuiPrevented = true; // Stop default to prevent conflicts
+                            apiRef.current.startCellEditMode({ id: params.id, field: params.field });
+                        }
+                    } else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyC') {
+                        // Copy value to clipboard
+                        event.defaultMuiPrevented = true;
+                        if (params.value !== undefined && params.value !== null && String(params.value).trim() !== '') {
+                            navigator.clipboard.writeText(String(params.value)).then(() => {
+                                showMessage('Copiato!', 'info');
+                            });
+                        }
+                    } else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') {
+                        // Paste value from clipboard
+                        event.defaultMuiPrevented = true;
+                        if (params.isEditable) {
+                            navigator.clipboard.readText().then(text => {
+                                const oldRow = items.find(i => i.id === params.id);
+                                if (oldRow) {
+                                    let parsedValue: any = text;
+                                    // Handle number columns
+                                    if (params.field === 'year' || params.field === 'season' || params.field === 'episode') {
+                                        parsedValue = parseInt(text, 10);
+                                        if (isNaN(parsedValue)) return; // Ignore invalid number pastes
+                                    }
+                                    const newRow = { ...oldRow, [params.field]: parsedValue };
+                                    processRowUpdate(newRow, oldRow);
+                                    showMessage('Incollato!', 'success');
+                                }
+                            });
+                        }
+                    }
+                }}
                 sx={{
                     flexGrow: 1,
                     boxShadow: 2,
@@ -89,6 +125,11 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                     borderColor: 'primary.light',
                     '& .MuiDataGrid-cell:hover': {
                         color: 'primary.main',
+                    },
+                    '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': {
+                        outline: '2px solid',
+                        outlineColor: 'primary.main',
+                        outlineOffset: '-2px',
                     },
                 }}
             />

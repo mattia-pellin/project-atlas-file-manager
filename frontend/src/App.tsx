@@ -35,9 +35,9 @@ function App() {
             borderRadius: 16,
         },
         typography: {
-            fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
+            fontFamily: '"Google Sans", "Outfit", "Inter", "Roboto", "Helvetica", "Arial", sans-serif',
             h3: {
-                fontFamily: '"Outfit", sans-serif',
+                fontFamily: '"Google Sans", "Outfit", sans-serif',
                 fontWeight: 800,
                 color: '#e5a00d',
                 letterSpacing: '-1.5px',
@@ -296,6 +296,11 @@ function App() {
             <CssBaseline />
             <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', p: { xs: 2, md: 4 } }}>
                 <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 2, position: 'relative' }}>
+                    <Box sx={{ position: 'absolute', left: 0, display: 'flex', alignItems: 'center', pl: 2 }}>
+                        <Typography variant="body2" color="text.secondary" fontWeight="bold" sx={{ opacity: 0.7 }}>
+                            v1.6.0
+                        </Typography>
+                    </Box>
                     <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: "easeOut" }}>
                         <Typography variant="h3" component="h1" align="center" sx={{ mb: 0 }}>
                             Project: Atlas - File Manager
@@ -361,6 +366,7 @@ function App() {
                         selectionModel={selectionModel}
                         onSelectionModelChange={setSelectionModel}
                         processRowUpdate={processRowUpdate}
+                        showMessage={showMessage}
                     />
                 </Box>
 
