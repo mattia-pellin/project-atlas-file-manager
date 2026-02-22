@@ -13,6 +13,44 @@ def sanitize_name(name: str) -> str:
     name = re.sub(r'\s+', ' ', name).strip()
     return name
 
+LOWERCASE_WORDS = {
+    "il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
+    "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
+    "del", "dello", "della", "dei", "degli", "delle", "dell",
+    "al", "allo", "alla", "ai", "agli", "alle", "all",
+    "dal", "dallo", "dalla", "dai", "dagli", "dalle", "dall",
+    "nel", "nello", "nella", "nei", "negli", "nelle", "nell",
+    "sul", "sullo", "sulla", "sui", "sugli", "sulle", "sull",
+    "e", "ed", "o", "od", "ma", "che", "se",
+    "a", "an", "the", "and", "but", "for", "or", "nor", 
+    "at", "by", "in", "of", "on", "to", "with", "from", "into"
+}
+
+def format_smart_title(text: str) -> str:
+    if not text:
+        return ""
+    
+    text = text.title()
+    
+    def replacer(match):
+        word = match.group(0)
+        word_lower = word.lower()
+        start = match.start()
+        
+        if start == 0:
+            return word
+            
+        prefix = text[:start].rstrip()
+        if prefix and prefix[-1] in [':', '-']:
+            return word
+            
+        if word_lower in LOWERCASE_WORDS:
+            return word_lower
+            
+        return word
+
+    return re.sub(r'[A-Za-z\u00C0-\u00FF]+', replacer, text)
+
 async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_cache: bool = False) -> MediaItem:
     # If standard scan, we parse the filename here. If re-analyzing, we use user overrides.
     if not item.media_type or item.media_type == "unknown":
@@ -37,7 +75,7 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
         if movie_data:
             title = movie_data.get("title") or movie_data.get("original_title")
             # Format: Title Case, replace slashes with dashes, remove illegal chars
-            title = sanitize_name(title.title())
+            title = sanitize_name(format_smart_title(title))
             
             # Map API year to item
             api_year = movie_data.get("release_date", "")[:4]
@@ -55,7 +93,7 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
         client = TVDBClientV4(tvdb_key, tvdb_pin)
         series_data = await client.search_series(item.clean_title, language_prefs, bypass_cache)
         if series_data:
-            series_name = sanitize_name(series_data.get("name", "").title())
+            series_name = sanitize_name(format_smart_title(series_data.get("name", "")))
             total_eps = series_data.get("total_episodes", 0)
             
             # Find specific episode and its ID
@@ -71,10 +109,10 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
                 # Ask API to pull prioritized translation for this specific episode
                 translated_title = await client.get_episode_translation(ep_id, language_prefs, bypass_cache)
                 if translated_title:
-                    ep_title = translated_title.title()
+                    ep_title = format_smart_title(translated_title)
                     
             if not ep_title and item.episode_title:
-                ep_title = item.episode_title.title()
+                ep_title = format_smart_title(item.episode_title)
                 
             ep_title = sanitize_name(ep_title)
             
