@@ -298,7 +298,7 @@ function App() {
                 <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 2, position: 'relative' }}>
                     <Box sx={{ position: 'absolute', left: 0, display: 'flex', alignItems: 'center', pl: 2 }}>
                         <Typography variant="body2" color="text.secondary" fontWeight="bold" sx={{ opacity: 0.7 }}>
-                            v1.6.0
+                            v1.7.0
                         </Typography>
                     </Box>
                     <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: "easeOut" }}>

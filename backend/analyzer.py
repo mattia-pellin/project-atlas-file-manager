@@ -10,9 +10,12 @@ def sanitize_name(name: str) -> str:
         return ""
     # Convert ':', '\', '/' to space
     name = re.sub(r'[:\\/]', ' ', name)
-    # Remove '*', '?', '"', '<', '>', '|'
-    name = re.sub(r'[*?"<>|]', '', name)
-    name = re.sub(r'\s+', ' ', name).strip()
+    # Convert '|' to ' - '
+    name = re.sub(r'\|', ' - ', name)
+    # Remove '*', '?', '"', '<', '>'
+    name = re.sub(r'[*?"<>]', '', name)
+    name = re.sub(r'\s+', ' ', name)
+    name = name.strip(' -')
     return name
 
 LOWERCASE_WORDS = {
