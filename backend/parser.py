@@ -9,13 +9,18 @@ def parse_filename(filename: str) -> Dict[str, Any]:
     """
     guess = guessit(filename)
     
+    def format_episode(ep_data: Any) -> Any:
+        if isinstance(ep_data, list) and len(ep_data) > 0:
+            return f"{ep_data[0]}-{ep_data[-1]}"
+        return ep_data
+    
     # Normalize the output dictionary for our models
     result = {
         "media_type": guess.get("type", "unknown"), # Returns 'movie' or 'episode' usually
         "clean_title": guess.get("title", ""),
         "year": guess.get("year"),
         "season": guess.get("season"),
-        "episode": guess.get("episode"),
+        "episode": format_episode(guess.get("episode")),
         "episode_title": guess.get("episode_title"),
     }
     
