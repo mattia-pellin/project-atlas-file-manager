@@ -6,7 +6,7 @@ export interface MediaItem {
     clean_title: string;
     year?: number;
     season?: number;
-    episode?: number;
+    episode?: number | string;
     episode_title?: string;
     proposed_name?: string;
     tmdb_id?: number;

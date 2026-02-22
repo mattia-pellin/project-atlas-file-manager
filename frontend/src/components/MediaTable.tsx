@@ -12,6 +12,45 @@ interface MediaTableProps {
     showMessage: (message: string, severity: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
+const isSeasonValid = (season: any) => {
+    if (season === undefined || season === null || season === '') return true;
+    const num = Number(season);
+    return Number.isInteger(num) && num >= 0 && num <= 99;
+};
+
+const isEpisodeValid = (episode: any) => {
+    if (episode === undefined || episode === null || episode === '') return false;
+    if (typeof episode === 'number') {
+        return Number.isInteger(episode) && episode >= 1 && episode <= 9999;
+    }
+    const str = String(episode).trim();
+    if (!str) return false;
+
+    if (/^\d+$/.test(str)) {
+        const num = parseInt(str, 10);
+        return num >= 1 && num <= 9999;
+    }
+
+    const match = str.match(/^(\d+)-(\d+)$/);
+    if (match) {
+        const start = parseInt(match[1], 10);
+        const end = parseInt(match[2], 10);
+        return start >= 1 && start <= 9999 && end >= 1 && end <= 9999 && start < end;
+    }
+
+    return false;
+};
+
+const isRowValid = (row: MediaItem) => {
+    if (row.original_name === row.proposed_name) return false;
+    if (row.media_type !== 'movie' && row.media_type !== 'episode') return false;
+    if (row.media_type === 'episode') {
+        if (!isSeasonValid(row.season)) return false;
+        if (!isEpisodeValid(row.episode)) return false;
+    }
+    return true;
+};
+
 export const MediaTable: React.FC<MediaTableProps> = ({
     items,
     selectionModel,
@@ -24,6 +63,7 @@ export const MediaTable: React.FC<MediaTableProps> = ({
     const columns: GridColDef[] = [
         {
             field: 'media_type', headerName: 'Type', width: 100, editable: true, type: 'singleSelect', valueOptions: ['movie', 'episode', 'unknown'],
+            cellClassName: (params) => (params.value !== 'movie' && params.value !== 'episode') ? 'cell-error' : '',
             renderCell: (params: GridRenderCellParams) => (
                 <Chip size="small" label={params.value} sx={params.value === 'movie' ? {} : { bgcolor: '#e65100', color: 'white' }} color={params.value === 'movie' ? 'primary' : 'default'} />
             )
@@ -31,8 +71,14 @@ export const MediaTable: React.FC<MediaTableProps> = ({
         { field: 'original_name', headerName: 'Original Name', flex: 1, minWidth: 200 },
         { field: 'clean_title', headerName: 'Title', width: 250, editable: true },
         { field: 'year', headerName: 'Year', width: 80, editable: true, type: 'number' },
-        { field: 'season', headerName: 'Season', width: 80, editable: true, type: 'number' },
-        { field: 'episode', headerName: 'Episode', width: 80, editable: true, type: 'number' },
+        {
+            field: 'season', headerName: 'Season', width: 80, editable: true, type: 'number',
+            cellClassName: (params) => (params.row.media_type === 'episode' && !isSeasonValid(params.value)) ? 'cell-error' : ''
+        },
+        {
+            field: 'episode', headerName: 'Episode', width: 100, editable: true,
+            cellClassName: (params) => (params.row.media_type === 'episode' && !isEpisodeValid(params.value)) ? 'cell-error' : ''
+        },
         { field: 'proposed_name', headerName: 'Proposed Name', width: 350, editable: true },
         {
             field: 'status', headerName: 'Status', width: 120,
@@ -68,6 +114,7 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                 columns={columns}
                 checkboxSelection
                 disableRowSelectionOnClick
+                isRowSelectable={(params) => isRowValid(params.row)}
                 onRowSelectionModelChange={onSelectionModelChange}
                 rowSelectionModel={selectionModel}
                 processRowUpdate={processRowUpdate}
@@ -106,9 +153,11 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                                 if (oldRow) {
                                     let parsedValue: any = text;
                                     // Handle number columns
-                                    if (params.field === 'year' || params.field === 'season' || params.field === 'episode') {
+                                    if (params.field === 'year' || params.field === 'season') {
                                         parsedValue = parseInt(text, 10);
                                         if (isNaN(parsedValue)) return; // Ignore invalid number pastes
+                                    } else if (params.field === 'episode') {
+                                        parsedValue = text;
                                     }
                                     const newRow = { ...oldRow, [params.field]: parsedValue };
                                     processRowUpdate(newRow, oldRow);
@@ -131,6 +180,14 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                         outlineColor: 'primary.main',
                         outlineOffset: '-2px',
                     },
+                    '& .cell-error': {
+                        bgcolor: '#ffebee',
+                        color: '#c62828',
+                        fontWeight: 'bold',
+                        '&:hover': {
+                            bgcolor: '#ffcdd2',
+                        }
+                    }
                 }}
             />
         </motion.div>

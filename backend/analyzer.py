@@ -19,15 +19,15 @@ def sanitize_name(name: str) -> str:
     return name
 
 LOWERCASE_WORDS = {
-    "il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
+    "è", "il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
     "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
     "del", "dello", "della", "dei", "degli", "delle", "dell",
-    "al", "allo", "alla", "ai", "agli", "alle", "all",
+    "al", "allo", "alla", "ai", "agli", "alle", "all", "si",
     "dal", "dallo", "dalla", "dai", "dagli", "dalle", "dall",
     "nel", "nello", "nella", "nei", "negli", "nelle", "nell",
     "sul", "sullo", "sulla", "sui", "sugli", "sulle", "sull",
     "e", "ed", "o", "od", "ma", "che", "se",
-    "a", "an", "the", "and", "but", "for", "or", "nor", 
+    "a", "an", "and", "but", "for", "or", "nor", 
     "at", "by", "in", "of", "on", "to", "with", "from", "into"
 }
 
@@ -101,35 +101,68 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
             series_name = sanitize_name(format_smart_title(series_data.get("name", "")))
             total_eps = series_data.get("total_episodes", 0)
             
-            # Find specific episode and its ID
-            ep_title = ""
-            ep_id = None
-            for ep in series_data.get("episodes_raw", []):
-                if ep.get("seasonNumber") == item.season and ep.get("number") == item.episode:
-                    ep_id = ep.get("id")
-                    ep_title = ep.get("name", "")
-                    break
-                    
-            if ep_id:
-                # Ask API to pull prioritized translation for this specific episode
-                translated_title = await client.get_episode_translation(ep_id, language_prefs, bypass_cache)
-                if translated_title:
-                    ep_title = format_smart_title(translated_title)
-                    
-            if not ep_title and item.episode_title:
-                ep_title = format_smart_title(item.episode_title)
-                
-            ep_title = sanitize_name(ep_title)
-            
             pad = calculate_padding(total_eps)
             s_str = f"{item.season:02d}" if item.season is not None else "01"
             
-            # The format string ensures dynamic padding E.g. 02, 002, 0002 based on pad length
-            e_str = f"{item.episode:0{pad}d}" if item.episode is not None else "01".zfill(pad)
+            ep_val = str(item.episode).strip() if item.episode is not None else "1"
+            if '-' in ep_val:
+                try:
+                    start_ep, end_ep = map(int, ep_val.split('-'))
+                    ep_titles = []
+                    for num in range(start_ep, end_ep + 1):
+                        ep_id = None
+                        ep_title = ""
+                        for ep in series_data.get("episodes_raw", []):
+                            if ep.get("seasonNumber") == item.season and ep.get("number") == num:
+                                ep_id = ep.get("id")
+                                ep_title = ep.get("name", "")
+                                break
+                        if ep_id:
+                            translated_title = await client.get_episode_translation(ep_id, language_prefs, bypass_cache)
+                            if translated_title:
+                                ep_title = format_smart_title(translated_title)
+                        ep_title = sanitize_name(ep_title)
+                        if ep_title:
+                            ep_titles.append(ep_title)
+                    
+                    e_str = f"{start_ep:0{pad}d}-{end_ep:0{pad}d}"
+                    proposed = f"{series_name} - S{s_str}E{e_str}"
+                    if ep_titles:
+                        proposed += " - " + " - ".join(ep_titles)
+                except ValueError:
+                    item.episode = 1
+                    e_str = f"{1:0{pad}d}"
+                    proposed = f"{series_name} - S{s_str}E{e_str}"
+            else:
+                try:
+                    ep_num = int(ep_val)
+                except ValueError:
+                    ep_num = 1
+                
+                ep_title = ""
+                ep_id = None
+                for ep in series_data.get("episodes_raw", []):
+                    if ep.get("seasonNumber") == item.season and ep.get("number") == ep_num:
+                        ep_id = ep.get("id")
+                        ep_title = ep.get("name", "")
+                        break
+                        
+                if ep_id:
+                    # Ask API to pull prioritized translation for this specific episode
+                    translated_title = await client.get_episode_translation(ep_id, language_prefs, bypass_cache)
+                    if translated_title:
+                        ep_title = format_smart_title(translated_title)
+                        
+                if not ep_title and item.episode_title:
+                    ep_title = format_smart_title(item.episode_title)
+                    
+                ep_title = sanitize_name(ep_title)
+                
+                e_str = f"{ep_num:0{pad}d}"
+                proposed = f"{series_name} - S{s_str}E{e_str}"
+                if ep_title:
+                    proposed += f" - {ep_title}"
             
-            proposed = f"{series_name} - S{s_str}E{e_str}"
-            if ep_title:
-                proposed += f" - {ep_title}"
             proposed += ext
             # Map API year to item
             api_year = series_data.get("year")

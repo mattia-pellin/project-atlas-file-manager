@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Union
 
 class MediaItem(BaseModel):
     id: str  # Unique identifier for the frontend table
@@ -9,7 +9,7 @@ class MediaItem(BaseModel):
     clean_title: str
     year: Optional[int] = None
     season: Optional[int] = None
-    episode: Optional[int] = None
+    episode: Optional[Union[int, str]] = None
     episode_title: Optional[str] = None
     proposed_name: Optional[str] = None
     tmdb_id: Optional[int] = None

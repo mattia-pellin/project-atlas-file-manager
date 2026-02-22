@@ -118,7 +118,9 @@ function App() {
                     return (a.season || 0) - (b.season || 0);
                 }
 
-                return (a.episode || 0) - (b.episode || 0);
+                const epA = typeof a.episode === 'string' ? parseInt(a.episode.split('-')[0], 10) : (a.episode || 0);
+                const epB = typeof b.episode === 'string' ? parseInt(b.episode.split('-')[0], 10) : (b.episode || 0);
+                return (isNaN(epA) ? 0 : epA) - (isNaN(epB) ? 0 : epB);
             }
 
             return 0; // fallback
