@@ -52,17 +52,20 @@ standing preference, not a fallback for when the shell is unavailable.
 `git push` is the one thing the MCP cannot do. The server speaks REST, so
 `push_files` fabricates a *new* commit from file contents instead of
 transferring local history — pushing eight commits through it would collapse
-them into one with different SHAs. There are deliberately **no stored git
-credentials on this machine**: no helper, no SSH key, no Git Credential
-Manager, and `~/.git-credentials` is removed after use. A push therefore needs
-a credential supplied for that one invocation and erased straight after with
-`git credential reject`. That is the user's credential and their decision:
-**ask which method they want, and do not pick one for them.**
+them into one with different SHAs. **Commits and pushes therefore go through
+the git CLI**, and are authenticated: the fine-grained PAT lives in
+`~/.git-credentials` (mode `600`) behind a **repo-local** `credential.helper
+store`, so `git push origin main` just works. The global helper is left unset
+on purpose, so no other repo on this machine picks the token up. The tradeoff
+is a plaintext token on disk — scoped to this one repo, and revocable at
+<https://github.com/settings/tokens>. An SSH key would remove even that and is
+the upgrade path if it ever matters.
 
-For a single-file change that has no history worth preserving (a doc fix, a
-version bump), skip all of that: commit it straight to the branch with the
-MCP's `create_or_update_file`, then `git pull --ff-only` locally. The repo is
-public, so fetching and pulling need no credential at all.
+Fetching and pulling need no credential at all: the repo is public.
+
+For a single-file change with no history worth preserving — a doc fix, a
+version bump — the MCP's `create_or_update_file` is still the tidier route:
+one call, nothing to reconcile locally, then `git pull --ff-only`.
 
 ### MCP servers
 
