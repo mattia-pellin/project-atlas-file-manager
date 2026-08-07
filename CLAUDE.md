@@ -45,8 +45,24 @@ the Stitch server below was configured. The `npx plugins` marketplace CLI
 binary. It warns "Claude Code was not detected on this system" and installs
 anyway.
 
-`gh` is **not installed** either. Use the GitHub MCP server for CI runs, PRs
-and releases, or install `gh` if a shell fallback is wanted.
+`gh` is **not installed** either. **Use the GitHub MCP server for every GitHub
+operation** — CI runs, releases, issues, reading files off a branch. That is a
+standing preference, not a fallback for when the shell is unavailable.
+
+`git push` is the one thing the MCP cannot do. The server speaks REST, so
+`push_files` fabricates a *new* commit from file contents instead of
+transferring local history — pushing eight commits through it would collapse
+them into one with different SHAs. There are deliberately **no stored git
+credentials on this machine**: no helper, no SSH key, no Git Credential
+Manager, and `~/.git-credentials` is removed after use. A push therefore needs
+a credential supplied for that one invocation and erased straight after with
+`git credential reject`. That is the user's credential and their decision:
+**ask which method they want, and do not pick one for them.**
+
+For a single-file change that has no history worth preserving (a doc fix, a
+version bump), skip all of that: commit it straight to the branch with the
+MCP's `create_or_update_file`, then `git pull --ff-only` locally. The repo is
+public, so fetching and pulling need no credential at all.
 
 ### MCP servers
 
