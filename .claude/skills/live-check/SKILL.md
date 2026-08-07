@@ -16,12 +16,13 @@ only check that catches that class of error.
 
 ```bash
 set -a; . ./.env; set +a
-venv/bin/python ${CLAUDE_SKILL_DIR}/probe.py $ARGUMENTS
+.venv/bin/python ${CLAUDE_SKILL_DIR}/probe.py $ARGUMENTS
 ```
 
 Sourcing `.env` is required — nothing in `backend/` calls `load_dotenv()`, and
-with no key the analyzer silently leaves every row `pending`. The probe checks
-for the three keys up front and refuses to run without them.
+with no key the analyzer returns every row as `status="error"` / `"Could not
+find a match"`, which reads as a genuine no-match. The probe checks for the
+three keys up front and refuses to run without them.
 
 Reading `.env` is allowed. **Never print a value**, here or in your reply.
 

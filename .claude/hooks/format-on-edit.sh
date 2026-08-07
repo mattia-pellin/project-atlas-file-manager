@@ -24,7 +24,11 @@ cd "$PROJECT_DIR" || exit 0
 
 case "$FILE" in
   *.py)
-    PY="$PROJECT_DIR/venv/bin/python"
+    # `.venv/` is the uv-managed environment; `venv/` is the pre-uv layout,
+    # accepted so a stale checkout still gets formatted instead of silently
+    # skipping.
+    PY="$PROJECT_DIR/.venv/bin/python"
+    [[ -x "$PY" ]] || PY="$PROJECT_DIR/venv/bin/python"
     [[ -x "$PY" ]] || exit 0
     "$PY" -m ruff --version >/dev/null 2>&1 || exit 0
 

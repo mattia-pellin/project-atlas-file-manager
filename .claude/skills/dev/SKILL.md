@@ -13,15 +13,15 @@ block the session waiting on either.
 
 ```bash
 set -a; . ./.env; set +a
-venv/bin/python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8001
+.venv/bin/python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
 **The `. ./.env` is required.** Nothing in `backend/` calls `load_dotenv()` —
 in production the keys are injected by `docker-compose.yml`, so a bare
 `uvicorn` starts with none of them. `enrich_media_item()` guards on
-`if ... and tmdb_key`, so with no key it silently leaves every row `pending`
-and reports no error at all. That failure looks exactly like "the API is
-down".
+`if ... and tmdb_key`, so with no key every row comes back `status="error"`
+with `"Could not find a match"` — indistinguishable from a genuine no-match,
+which is why a missing key looks exactly like "the API is down".
 
 8001 is not arbitrary: `frontend/vite.config.ts` proxies `/api` to
 `http://127.0.0.1:8001`. If you change the port, change the proxy too.

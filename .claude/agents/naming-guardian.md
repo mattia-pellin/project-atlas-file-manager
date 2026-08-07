@@ -43,11 +43,11 @@ you judge whether an output is correct.
 1. **Reproduce the exact output.** Never reason about what the code probably
    produces. Run it:
    ```bash
-   venv/bin/python -c "from backend.analyzer import format_smart_title as f; print(repr(f('...')))"
+   .venv/bin/python -c "from backend.analyzer import format_smart_title as f; print(repr(f('...')))"
    ```
    Quote the real `repr()` in your findings.
 
-2. **Run the naming tests before and after.** `venv/bin/python -m pytest
+2. **Run the naming tests before and after.** `.venv/bin/python -m pytest
    backend/test_naming.py -q`. A change that alters an existing expected string
    is a behaviour change, not a refactor — call it out explicitly and make the
    user confirm it, even when the new output looks better.

@@ -14,7 +14,7 @@ number.
 
 | Area | Location | Command |
 | --- | --- | --- |
-| Backend | `backend/test_*.py` | `venv/bin/python -m pytest` |
+| Backend | `backend/test_*.py` | `.venv/bin/python -m pytest` |
 | Frontend | `frontend/src/**/*.test.ts` | `cd frontend && npm test` |
 
 `pytest` is configured in `pyproject.toml` with `asyncio_mode = "auto"`, so

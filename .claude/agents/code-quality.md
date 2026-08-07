@@ -18,7 +18,7 @@ Three standing concerns, applied to every review, are set out at the bottom:
 
 ```bash
 git diff                       # or `git diff main...HEAD` on a branch
-venv/bin/python -m ruff check .
+.venv/bin/python -m ruff check .
 cd frontend && npm run lint && npm run typecheck
 ```
 
@@ -61,14 +61,14 @@ Sweep for it explicitly, don't just notice it in passing:
 
 ```bash
 # Python: unused imports/variables/arguments, and commented-out code.
-venv/bin/python -m ruff check --select F401,F811,F841,ARG,ERA --preview .
+.venv/bin/python -m ruff check --select F401,F811,F841,ARG,ERA --preview .
 
 # Frontend: unused files, exports, types and dependencies.
 cd frontend && npx --yes knip
 ```
 
-Neither tool is a project dependency — run them ad hoc, don't add them to
-`requirements-dev.txt` or `package.json`. `ERA` and `knip` both produce false
+Neither tool is a project dependency — run them ad hoc, don't add them to the
+`dev` group in `pyproject.toml` or to `package.json`. `ERA` and `knip` both produce false
 positives; treat their output as a list of candidates, not a verdict.
 
 Hunt for these, which the tools miss:
@@ -77,8 +77,9 @@ Hunt for these, which the tools miss:
   including `frontend/` when you're deleting from `backend/` — the
   `MediaItem` shape crosses the boundary and the two halves are only coupled
   by convention.
-- Dependencies in `backend/requirements.txt` and `frontend/package.json` that
-  nothing imports. Each one is image size and supply-chain surface.
+- Dependencies in `pyproject.toml` and `frontend/package.json` that nothing
+  imports. Each one is image size and supply-chain surface. `python-multipart`
+  is a known dead one, kept only until the cleanup pass.
 - Branches that can't be reached because a caller was narrowed.
 - Commented-out code. Delete it — `git log` is the archive.
 

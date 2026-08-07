@@ -45,8 +45,9 @@ destruction by the authenticated user's own client*, not intrusion.
    frontend bundle. Check `git log -p` and the working tree for a committed
    `.env` or a log file containing a key. `.env` is deny-listed in
    `.claude/settings.json`; confirm nothing else reads it into an artefact.
-4. **Supply chain.** `npm audit --omit=dev` in `frontend/`, and check
-   `backend/requirements.txt` pins against known advisories. The `overrides`
+4. **Supply chain.** `npm audit --omit=dev` in `frontend/`, and check the
+   versions in `uv.lock` against known advisories — that lock, not the ranges
+   in `pyproject.toml`, is what the image actually installs. The `overrides`
    block in `package.json` exists to force patched transitive versions —
    check it's still needed and still sufficient.
 5. **Container posture.** The image runs as root and mounts the library `rw`.

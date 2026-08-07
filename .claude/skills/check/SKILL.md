@@ -14,16 +14,17 @@ lint must not hide a red test.
 
 ## Backend
 
-Run from the repo root. The interpreter is the root `venv/`, not the system
-python and not `backend/venv/`.
+Run from the repo root. The interpreter is the root `.venv/`, managed by uv
+from `uv.lock` — not the system python. If it is missing, `.venv/bin/uv sync`
+recreates it (bootstrap in CLAUDE.md).
 
 ```bash
-venv/bin/python -m ruff check .
-venv/bin/python -m ruff format --check .
-venv/bin/python -m pytest
+.venv/bin/python -m ruff check .
+.venv/bin/python -m ruff format --check .
+.venv/bin/python -m pytest
 ```
 
-Expected baseline: ruff clean, and pytest reporting **23 passed, 2 xfailed**.
+Expected baseline: ruff clean, and pytest reporting **33 passed, 2 xfailed**.
 
 The two `xfailed` are correct. They are strict markers pinning two known
 `format_smart_title` defects (the missing `"the"` in `LOWERCASE_WORDS`, and

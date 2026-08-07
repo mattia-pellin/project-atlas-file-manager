@@ -42,9 +42,8 @@ git tag -l "v$1"                # must be empty; never move an existing tag
 Then run the full gate — see the `check` skill. **A red gate stops the
 release.** Do not push a tag to "see if CI passes"; the tag workflow deploys.
 
-Confirm `.dockerignore` still excludes `.env`, `.git`, `venv/`,
-`backend/venv/`, `node_modules/` and `.cache/`, so no secret is baked into a
-published image.
+Confirm `.dockerignore` still excludes the dotenv files, `.git`, `.venv/`,
+`node_modules/` and `.cache/`, so no secret is baked into a published image.
 
 ## 3. Commit, tag, push
 
