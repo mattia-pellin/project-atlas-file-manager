@@ -1,5 +1,24 @@
 # Environments
 .env
+.env.*
+!.env.example
+venv/
+.venv/
+
+# Runtime artefacts
+*.log
+.pytest_cache/
+.ruff_cache/
+coverage/
+htmlcov/
+.coverage
+
+# Claude Code (local overrides and machine-specific state)
+.claude/settings.local.json
+
+# Google Stitch working directory - generated screens, HTML and metadata.
+# Regenerable from the Stitch project; not source.
+.stitch/
 
 # Python
 __pycache__/
@@ -7,19 +26,22 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+# NOTE: these setuptools patterns are anchored with a leading slash on
+# purpose. Unanchored, `lib/` and `var/` silently swallow source directories
+# anywhere in the tree - `frontend/src/lib/` was invisible to git because of it.
+/env/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 *.egg-info/
 .installed.cfg
 *.egg

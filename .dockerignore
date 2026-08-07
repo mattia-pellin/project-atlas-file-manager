@@ -1,7 +1,14 @@
 .git
 .gitignore
+.github/
 .env
+.env.*
 README.md
+CLAUDE.md
+test_media/
+
+# Claude Code
+.claude/
 
 # Python
 __pycache__/
@@ -9,12 +16,23 @@ __pycache__/
 *$py.class
 .cache/
 backend/.cache/
+venv/
+backend/venv/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+requirements-dev.txt
+backend/test_*.py
 
 # Node
 frontend/node_modules/
 frontend/dist/
 frontend/.npm/
+frontend/coverage/
 npm-debug.log*
+*.log
 
 # OS/IDE
 .DS_Store
