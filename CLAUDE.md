@@ -95,6 +95,41 @@ action after fixing a credential is `/mcp` → **reconnect**.
 Rotating a Stitch key at the setup page **issues a new key without revoking the
 old one** — verified. Revoke the previous key explicitly, or it stays live.
 
+`ERR_TLS_CERT_ALTNAME_INVALID fetching "https://api.githubcopilot.com/mcp/"` is
+a **DNS fault on the local network, not a credential problem** — observed
+mid-session on 2026-08-07, after the same server had been answering fine. The
+upstream forwarder Windows resolves through returned `api.githubcopilot.com` as
+a CNAME to bare `github.com.` instead of GitHub's load-balancer host
+(`glb-….github.com.`); WSL's stub resolver forwards to Windows, so this distro
+inherits it. The connection then lands on github.com's address and is served
+github.com's certificate, whose SANs cover only `github.com` and
+`www.github.com`. Node rejects it, correctly.
+
+Confirm it before touching anything else — compare the resolver in use against a
+public one:
+
+```
+dig +short api.githubcopilot.com            # via the configured resolver
+dig +short @1.1.1.1 api.githubcopilot.com   # glb-….github.com. is the right answer
+```
+
+A bare `github.com.` from the first and `glb-….github.com.` from the second is
+the signature. (`/etc/resolv.conf` names the WSL stub; `ipconfig /all` on the
+Windows side names the real upstream behind it.)
+
+`ipconfig /flushdns` does **not** fix it: the bad answer is upstream of the
+Windows cache. It clears when that upstream's own cache expires. To not wait,
+point DNS at a public resolver — on the Windows adapter, or for this distro only
+via `/etc/wsl.conf` (`[network] generateResolvConf = false`) plus a
+hand-written `/etc/resolv.conf`. Both are machine-level changes outside the
+repo: **ask first.** Do not pin an address in `/etc/hosts` — load-balancer IPs
+rotate, and WSL regenerates the file anyway.
+
+`git` itself is unaffected: it talks to `github.com`, which resolves correctly.
+So does the public REST API — `curl https://api.github.com/…` needs no
+credential on this repo and is the fallback for reading CI results while the MCP
+is down.
+
 `list_pull_requests` returns **404 Not Found** on this repo. That is a property
 of the repo, not a broken token: `GET /repos/…/pulls` 404s anonymously too,
 while `commits`, `branches`, `tags`, `releases` and `issues` all return 200
