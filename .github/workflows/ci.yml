@@ -19,11 +19,15 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.14'
           cache: pip
+          cache-dependency-path: requirements-dev.lock
 
+      # From the lock, not the ranges: every version is pinned and hash-checked,
+      # so CI tests the same resolution the container ships. Regenerate with the
+      # command in the lockfile header.
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install --require-hashes -r requirements-dev.lock
 
       - name: Lint
         run: ruff check --output-format github .

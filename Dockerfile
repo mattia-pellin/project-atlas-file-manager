@@ -1,16 +1,17 @@
 FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.14-slim
 WORKDIR /app
 
-# Install backend dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install backend dependencies from the hash-checked lock, not from the ranges
+# in requirements.txt — the image must ship the same resolution CI tested.
+COPY backend/requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 # Copy backend code
 COPY backend/ ./backend/

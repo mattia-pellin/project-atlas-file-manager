@@ -2,7 +2,7 @@
 name = "atlas-file-manager"
 version = "1.9.0"
 description = "Scan, identify and mass-rename media files to Plex naming conventions"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 
 [tool.pytest.ini_options]
 testpaths = ["backend"]
@@ -13,7 +13,7 @@ addopts = "-q --strict-markers"
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py314"
 exclude = ["venv", "backend/venv", ".cache", "frontend"]
 
 [tool.ruff.lint]
@@ -33,10 +33,18 @@ ignore = [
     "B008",       # FastAPI Depends() in defaults is idiomatic
     "E501",       # line length is enforced by `ruff format`, not the linter
     "SIM105",     # try/except/pass reads fine here; contextlib.suppress is not clearer
-    "ASYNC240",   # suggests trio.Path; not applicable to a FastAPI/asyncio stack
 
     # --- Tracked debt: these are real findings, muted only to keep the baseline
     # green. Re-enable the rule in the same commit that clears the debt.
+    #
+    # TODO(blocking-io): ASYNC240's *suggestion* (trio.Path) does not fit this
+    # stack, but its two findings are real blocking filesystem calls on the
+    # event loop, both in the async `rename_items`: `old_path.exists()`
+    # (main.py:72) and `old_path.rename()` (main.py:85). The fix is
+    # `anyio.to_thread.run_sync`, or making the whole endpoint `def` so
+    # Starlette runs it in the threadpool. Do it when the rename path is
+    # reworked for the auto-move feature, then drop this ignore.
+    "ASYNC240",
     #
     # TODO(logging): api_clients.py swallows API failures into print(). The
     # planned auto-move + rollback journal needs real structured logging;

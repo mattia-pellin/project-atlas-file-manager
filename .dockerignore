@@ -24,6 +24,7 @@ backend/venv/
 .coverage
 htmlcov/
 requirements-dev.txt
+requirements-dev.lock
 backend/test_*.py
 
 # Node

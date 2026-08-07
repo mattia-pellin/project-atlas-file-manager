@@ -1,3 +1,6 @@
+# Human-edited input, NOT an install target — install `requirements-dev.lock`.
+# See CLAUDE.md, "Dependencies are locked".
+
 -r backend/requirements.txt
 
 pytest>=8.0.0
@@ -5,3 +8,8 @@ pytest-asyncio>=0.24.0
 pytest-mock>=3.14.0
 pytest-cov>=6.0.0
 ruff>=0.9.0
+
+# Resolver/installer. Listed so `uv pip sync` does not uninstall itself, and so
+# regenerating the locks needs nothing installed outside the venv. The exact
+# compile command is recorded in each lockfile's header.
+uv>=0.12.0

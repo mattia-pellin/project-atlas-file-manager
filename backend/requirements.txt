@@ -1,3 +1,8 @@
+# Human-edited input, NOT an install target. Nothing installs from this file:
+# the venv, CI and the image all install `backend/requirements.lock`, which is
+# fully pinned and hash-checked. Edit here, then regenerate the lock with the
+# command recorded in its header. See CLAUDE.md, "Dependencies are locked".
+
 fastapi>=0.110.0
 uvicorn>=0.29.0
 pydantic>=2.6.4
