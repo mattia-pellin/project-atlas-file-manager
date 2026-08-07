@@ -74,12 +74,12 @@ FIXTURE_PARSES: dict[str, dict[str, Any]] = {
         "episode": None,
         "episode_title": None,
     },
-    # KNOWN DEFECT: the title is truncated at the first pipe, so "Reloaded" is
-    # lost and the search runs for the 1999 film. The year *is* recovered
-    # (2003) — it is the title, not the year, that the pipe destroys.
+    # A pipe splits the title: guessit reports title="The Matrix" plus
+    # alternative_title="Reloaded". `parse_filename` rejoins them, otherwise the
+    # search runs for "The Matrix" and matches the 1999 film instead of the 2003 one.
     "The Matrix | Reloaded | 2003.mkv": {
         "media_type": "movie",
-        "clean_title": "The Matrix",
+        "clean_title": "The Matrix Reloaded",
         "year": 2003,
         "season": None,
         "episode": None,
@@ -131,10 +131,30 @@ def test_type_is_inferred_from_season_or_episode() -> None:
     assert parse_filename("Some Show - 05.mkv")["media_type"] == "episode"
 
 
-# --- Known defect ------------------------------------------------------------
-# `format_episode` renders a one-element list as "N-N", which the frontend's
-# `isEpisodeValid` then rejects because it requires start < end. It is not
-# reachable from any fixture: guessit collapses S01E05E05, S01E05-E05 and
-# 1x05x05 to the int 5, never to [5]. Left unguarded on purpose rather than
-# asserted against a synthetic input that guessit cannot actually produce; the
-# fix belongs with the S01E10-E12 change.
+def test_alternative_title_is_appended() -> None:
+    """guessit's `alternative_title` holds the tail of a split title, not a synonym.
+
+    Any separator it treats as structural does this, not just the pipe in the
+    fixture above, so the dash form is covered too.
+    """
+    assert parse_filename("The Matrix - Reloaded - 2003.mkv")["clean_title"] == "The Matrix Reloaded"
+
+
+@pytest.mark.parametrize(
+    ("episode_value", "expected"),
+    [
+        ([5], 5),  # one-element list must not become "5-5"
+        ([10, 11, 12], "10-12"),
+        (7, 7),
+        (None, None),
+    ],
+)
+def test_format_episode_shapes(mocker, episode_value: Any, expected: Any) -> None:
+    """`format_episode` is exercised through its caller, since it is a closure.
+
+    The one-element case is why this is mocked rather than driven by a filename:
+    guessit collapses S01E05E05, S01E05-E05 and 1x05x05 to the int 5, never to
+    [5], so the branch is unreachable from real input but still live code.
+    """
+    mocker.patch("backend.parser.guessit", return_value={"type": "episode", "episode": episode_value})
+    assert parse_filename("irrelevant.mkv")["episode"] == expected

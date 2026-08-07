@@ -5,11 +5,15 @@ from pathlib import Path
 import filetype
 
 
-def get_media_files(directory: str) -> Generator[Path]:
+def get_media_files(directory: str | Path) -> Generator[Path]:
     """
     Recursively scans a directory and yields files that are detected as
     actual media (video or audio) via MIME-type checking, bypassing
     simple extension checks for robust evaluation.
+
+    The caller is responsible for containment: pass a path that has already been
+    through `paths.resolve_within_roots`. `os.walk` does not follow symlinked
+    directories, so results stay inside whatever it is given.
     """
     base_path = Path(directory)
     if not base_path.is_dir():

@@ -9,6 +9,9 @@ services:
       - TVDB_API_KEY=${TVDB_API_KEY}
       - TVDB_PIN=${TVDB_PIN}
       - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
+      # Container side of the mount below, and the only tree the app may touch.
+      # Deliberately not ${MEDIA_DIR}: that is the host path.
+      - MEDIA_ROOT=/media
     volumes:
       - ${MEDIA_DIR}:/media:rw
     restart: unless-stopped

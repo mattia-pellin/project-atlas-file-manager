@@ -66,39 +66,58 @@ you judge whether an output is correct.
    - Season 0 (specials), missing season, missing year
    - Titles that are entirely non-Latin script
 
-4. **Check the padding contract.** Episode padding comes from the series'
-   total episode count via `calculate_padding()`, season is always 2 digits.
-   Verify against a large series (One Piece, 1100 episodes → `S01E0001`) and a
-   small one.
+4. **Check the padding contract.** Episode padding comes from **that season's**
+   episode count via `calculate_padding()`, never the series total; season is
+   always 2 digits. Verify against a long-running series whose seasons are
+   short (One Piece: 1100+ episodes overall, 61 in S01 → `S01E10`) and against
+   a season that really does exceed 99 episodes → `S21E0010`.
 
 5. **Demand a pinned test.** Every fix and every new naming rule needs a case
    in `backend/test_naming.py` asserting the exact resulting string. Not "it
    contains", not "it matches a regex" — the whole string. If the change has
    no test, that is your top finding.
 
-## Known defects you should expect to meet
+## Rules that were bought with a bug — do not regress them
 
-These are documented in `CLAUDE.md` and carry `xfail` tests. Do not report
-them as new; do check whether the change in front of you fixes or worsens
-them.
+Each of these was a real defect that reached real filenames. They are now
+asserted in `backend/test_naming.py` and `backend/test_renaming.py`. Treat a
+change that alters any of them as a finding until proven otherwise.
 
-- `"the"` is missing from `LOWERCASE_WORDS`, so `"the lord of the rings"`
-  becomes `"The Lord of The Rings"`.
-- `str.title()` uppercases after an apostrophe, so `"a bug's life"` becomes
-  `"A Bug'S Life"`.
-- `parse_filename` emits `"N-N"` for a single-element episode list, which
-  `isEpisodeValid` in the frontend then rejects.
+- `"the"` is in `LOWERCASE_WORDS`: `"the lord of the rings"` →
+  `"The Lord of the Rings"`.
+- The apostrophe is decided by looking at **both sides**, in `_after_apostrophe`.
+  Italian elisions (`ITALIAN_ELISIONS`) keep the following capital and are
+  themselves lowercase — `dell'Amore`, `il Codice d'Onore`; English contractions
+  (`CONTRACTION_SUFFIXES`) are lowercase — `A Bug's Life`, `I'm Luffy`; anything
+  else keeps `str.title()`'s answer — `O'Brien`. A minor word after an elision
+  stays minor: `non c'è`.
+- A multi-episode range is `S02E10-E12`, with the second `E`. A one-episode
+  range collapses: `parse_episode_range("5-5")` → `(5, 5)` → `E05`.
+- An episode number that will not parse is an **error**, never a fallback to
+  episode 1. Inventing a number produces a confident name for the wrong file.
+- `parse_filename` rejoins guessit's `alternative_title`, so `"The Matrix |
+  Reloaded | 2003"` searches for `The Matrix Reloaded`.
 
-When you fix one, remove the `xfail` marker in the same change and keep the
-test case.
+## The defect that is still open
+
+API matching takes `results[0]` with no confidence scoring and marks the item
+`"matched"` regardless. `Doctor Who S05E01` still resolves to the 1963 series
+and `One Piece` to the 2023 live-action. Do not report this as new — but do
+check whether the change in front of you makes a wrong match *harder to spot*.
+Now that padding is per-season, almost everything is 2 digits, so the odd
+padding that used to betray a wrong match no longer does.
 
 ## Path safety
 
-As the automatic-move feature lands, you also own destination paths. A
-computed destination must be proven to stay inside the configured library
-root — resolve it and compare, don't pattern-match on `..`. `sanitize_name`
-strips `/` and `\` but was never designed as a security boundary; say so
-rather than relying on it.
+`backend/paths.py` owns this and is the only place allowed to build a path from
+client input. It resolves and compares against the configured roots rather than
+pattern-matching on `..`, and `resolve_rename_target` additionally requires a
+bare filename. `sanitize_name` strips `/` and `\` but was never designed as a
+security boundary — say so rather than relying on it.
+
+As the automatic-move feature lands, you also own destination paths. A computed
+destination must go through `resolve_within_roots` against `LIBRARY_ROOT`. A new
+code path that calls `Path(...)` on request data without it is a top finding.
 
 ## Output
 

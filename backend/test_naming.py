@@ -46,8 +46,23 @@ def test_sanitize_name(raw: str, expected: str) -> None:
         # deliberate convention choice, not an accident: keep it consistent
         # with "dell'Olmo" below.
         ("all'ombra dell'olmo", "All'Ombra dell'Olmo"),
+        # ...unless that word is itself a minor word: the elision does not start
+        # a new sentence.
+        ("non c'è due senza tre", "Non c'è Due Senza Tre"),
+        # The elision itself is lowercase mid-sentence even when it is one letter,
+        # which LOWERCASE_WORDS cannot express because it holds whole words.
+        ("il codice d'onore", "Il Codice d'Onore"),
+        # An apostrophe that is *not* an Italian elision keeps its capital. "o" is
+        # in LOWERCASE_WORDS, so without the elision check this would be "o'Brien".
+        ("patrick o'brien", "Patrick O'Brien"),
         # English minor words stay lowercase mid-sentence
         ("the empire strikes back", "The Empire Strikes Back"),
+        ("the lord of the rings", "The Lord of the Rings"),
+        # English contractions: str.title() would give "Bug'S", "I'M", "We'Re"
+        ("a bug's life", "A Bug's Life"),
+        ("i'm luffy", "I'm Luffy"),
+        ("we're the millers", "We're the Millers"),
+        ("don't look up", "Don't Look Up"),
         # First word is always capitalised
         ("of mice and men", "Of Mice and Men"),
         # A word right after ':' or '-' is treated as a new sentence
@@ -61,26 +76,18 @@ def test_format_smart_title(raw: str, expected: str) -> None:
     assert format_smart_title(raw) == expected
 
 
-# --- Known defects -----------------------------------------------------------
-# These document real bugs in format_smart_title. Remove the xfail marker in the
-# same commit that fixes the underlying cause; do not delete the case.
+# --- Regressions --------------------------------------------------------------
+# Both of these were tracked defects. They are kept as named tests, separate from
+# the table above, so a failure names the bug rather than a table row.
 
 
-@pytest.mark.xfail(
-    reason="BUG: 'the' is absent from LOWERCASE_WORDS in analyzer.py, so every "
-    "occurrence after the first word is capitalised.",
-    strict=True,
-)
 def test_the_stays_lowercase_mid_sentence() -> None:
+    """'the' was absent from LOWERCASE_WORDS, so it was capitalised everywhere."""
     assert format_smart_title("the lord of the rings") == "The Lord of the Rings"
 
 
-@pytest.mark.xfail(
-    reason="BUG: str.title() uppercases the letter after an apostrophe, so the "
-    'English saxon genitive becomes "Bug\'S".',
-    strict=True,
-)
 def test_saxon_genitive_stays_lowercase() -> None:
+    """str.title() uppercases the letter after an apostrophe: "A Bug'S Life"."""
     assert format_smart_title("a bug's life") == "A Bug's Life"
 
 

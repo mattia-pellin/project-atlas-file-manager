@@ -276,7 +276,9 @@ class TVDBClientV4:
     async def get_series_extended(
         self, series_id: int, language_prefs: list[str], token: str, bypass_cache: bool = False
     ) -> dict[str, Any] | None:
-        cache_key = get_cache_key("tvdb_series_ext_v2", series_id, ",".join(language_prefs))
+        # _v3: the payload shape changed (total_episodes -> season_episode_counts). A stale
+        # _v2 entry would silently fall back to 2-digit padding on a 100+ episode season.
+        cache_key = get_cache_key("tvdb_series_ext_v3", series_id, ",".join(language_prefs))
         if not bypass_cache and cache_key in cache:
             return cache[cache_key]
 
@@ -302,9 +304,15 @@ class TVDBClientV4:
                     else:
                         break
 
-            # Extract total episodes for padding calculation across all seasons
-            season_arrays = [ep for ep in episodes if ep.get("seasonNumber", 0) > 0]
-            total_eps = len(season_arrays)
+            # Episode count per season, which is what the zero-padding is derived from.
+            # It must NOT be the series total: One Piece has 1100+ episodes overall but
+            # only 61 in season 1, and Plex expects S01E10, not S01E0010.
+            # Specials (season 0) are excluded — they are not padded against.
+            season_episode_counts: dict[int, int] = {}
+            for ep in episodes:
+                season_number = ep.get("seasonNumber", 0)
+                if season_number > 0:
+                    season_episode_counts[season_number] = season_episode_counts.get(season_number, 0) + 1
 
             # Fetch localized series translation
             series_translation = await self.get_series_translation(series_id, language_prefs, bypass_cache)
@@ -315,7 +323,7 @@ class TVDBClientV4:
 
             result = {
                 "name": series_translation or series_info.get("name"),
-                "total_episodes": total_eps,
+                "season_episode_counts": season_episode_counts,
                 "episodes_raw": episodes,
                 "year": year,
             }
@@ -327,7 +335,12 @@ class TVDBClientV4:
 
 
 def calculate_padding(total_items: int) -> int:
-    """Calculates zero-padding based on total expected items (minimum 2 chars)"""
+    """Zero-padding width for an episode number, from the episode count of *its own season*.
+
+    Minimum 2, which is what Plex expects and what every season under 100 episodes gets.
+    Callers must pass the season's count, never the series total — see
+    `season_episode_counts` in `get_series_extended`.
+    """
     if total_items < 100:
         return 2
     return len(str(total_items))

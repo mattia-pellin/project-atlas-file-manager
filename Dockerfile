@@ -40,7 +40,8 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Default environment variables
 ENV PORT=8000
-ENV MEDIA_DIR=/media
+# The only tree the app may read or rename inside. `backend/paths.py` enforces it.
+ENV MEDIA_ROOT=/media
 ENV TMDB_API_KEY=""
 ENV TVDB_API_KEY=""
 ENV CACHE_TTL_HOURS=24

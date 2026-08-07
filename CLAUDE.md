@@ -282,7 +282,8 @@ only honest check — `ls -l` shows the working tree, not what git recorded.
 ## Architecture
 
 ```
-POST /api/scan     → scanner.get_media_files()  walk + magic-byte filter
+POST /api/scan     → paths.resolve_within_roots()  400 if outside MEDIA_ROOT
+                   → scanner.get_media_files()  walk + magic-byte filter
                    → parser.parse_filename()    guessit → title/year/S/E
                    ← MediaItem[] (no network calls, fast)
 
@@ -293,7 +294,8 @@ POST /api/analyze  → analyzer.enrich_media_item()
                      → format_smart_title() → sanitize_name()
                    ← MediaItem with proposed_name
 
-POST /api/rename   → Path.rename(), one item at a time, per-item status
+POST /api/rename   → paths.resolve_rename_target()  containment + bare-name check
+                   → Path.rename(), one item at a time, per-item status
 ```
 
 The frontend calls `/api/analyze` **once per file, all in parallel**
@@ -304,11 +306,14 @@ mind before adding more per-item network calls.
 ### Files that matter
 
 - `backend/analyzer.py` — the naming pipeline. `LOWERCASE_WORDS`,
-  `format_smart_title()`, `sanitize_name()`. **Highest-risk file in the repo.**
+  `ITALIAN_ELISIONS`, `CONTRACTION_SUFFIXES`, `format_smart_title()`,
+  `sanitize_name()`, `parse_episode_range()`. **Highest-risk file in the repo.**
+- `backend/paths.py` — containment. Every client-supplied path goes through it;
+  nothing else may build a path from request data.
 - `backend/api_clients.py` — TMDB/TVDB clients, `diskcache`, retry, per-key
   `asyncio.Lock`, and `calculate_padding()`.
 - `backend/parser.py` — thin `guessit` wrapper; normalises multi-episode
-  lists to a `"10-12"` string.
+  lists to a `"10-12"` string and rejoins `alternative_title` onto the title.
 - `frontend/src/lib/validation.ts` — row validation. A row that fails
   `isRowValid` cannot be selected, so it cannot be renamed. This is the last
   gate before the filesystem; keep these functions pure and tested.
@@ -317,10 +322,36 @@ mind before adding more per-item network calls.
 
 ### Padding rule
 
-Episode zero-padding is derived from the series' total episode count, not from
-a constant: `calculate_padding()` returns 2 below 100 episodes, otherwise
-`len(str(total))`. One Piece (1100 episodes) yields `S01E0001`. Season is
-always 2 digits.
+Episode zero-padding is derived from **that season's** episode count, not from a
+constant and not from the series total: `calculate_padding()` returns 2 below 100
+episodes, otherwise `len(str(count))`. Season is always 2 digits.
+
+`get_series_extended` exposes `season_episode_counts` (`{season: count}`) for this;
+`analyzer.py` looks up the item's own season, defaulting to season 1 when the
+filename has none. One Piece has 1100+ episodes overall but 61 in season 1, so
+`S01E10` is correct and the old `S01E0010` was not — it does not match the folder
+Plex already has. A season that genuinely exceeds 99 episodes still pads wide.
+
+**Unexpected padding is usually evidence of a wrong API match, not a padding bug.**
+
+### Filesystem containment
+
+`backend/paths.py` is the only place allowed to turn client input into a path.
+Everything the app reads or renames must resolve inside a configured root:
+`MEDIA_ROOT` (default `/media`, the container side of the compose bind mount) and,
+when the automatic-move feature lands, `LIBRARY_ROOT`. It is a *list* so that
+adding the destination library is configuration, not a rewrite.
+
+Do not confuse `MEDIA_ROOT` with the `MEDIA_DIR` in `.env`: the latter is the
+**host** path compose mounts onto `/media`, and the backend never reads it.
+A local `uvicorn` therefore needs `MEDIA_ROOT` set explicitly — see the `dev`
+skill — or every scan returns `400`.
+
+Containment is checked on the **resolved** path, which is what makes it hold
+against `..`, against an absolute path from the client, and against a symlink out
+of the tree. `resolve_rename_target` additionally requires a bare filename and
+returns both ends of the rename, so the caller cannot re-derive the source from
+the unchecked string.
 
 ## Roadmap
 
@@ -343,24 +374,25 @@ filesystem should be one thin, easily journaled layer.
 ## Measured behaviour against the live APIs
 
 Run `live-check` (`.claude/skills/live-check/`) to reproduce. Against the eight
-fixtures in `test_media/`, on 2026-08-07, with `lang=it,en`:
-**6 proposed, 2 unmatched — and of the 6, only 3 are correct.**
+fixtures in `test_media/`, on 2026-08-07, with `lang=it,en`, after the naming
+fixes: **6 proposed, 2 unmatched — and of the 6, 4 are correct.**
 
 | Fixture | Proposed | Verdict |
 | --- | --- | --- |
-| `Breaking Bad S02E10-12.mkv` | `Breaking Bad - S02E10-12 - Game Over - Mandala - Phoenix.mkv` | correct (bar the `E12` vs Plex's `E-E12`) |
+| `Breaking Bad S02E10-12.mkv` | `Breaking Bad - S02E10-E12 - Game Over - Mandala - Phoenix.mkv` | correct |
 | `Star Wars The Empire Strikes Back - 1980.mp4` | `L'Impero Colpisce Ancora (1980).mp4` | correct — year-less filename and IT translation both handled |
-| `SpongeBob SquarePants S01E01-03.mkv` | `Spongebob - S01E001-003 - Cercasi Aiuto - L'Aspira Reef - Tè Sotto l'Albero.mkv` | correct-ish; TVDB's IT series name drops "SquarePants", which will not match an existing Plex folder |
-| `Doctor Who S05E01.mkv` | `Doctor Who - S05E001 - The Tomb of The Cybermen (1).mkv` | **wrong series** — matched the 1963 classic run, not the 2005 revival. Also shows the `The` defect |
-| `One Piece S01E10 I'm Luffy.mkv` | `One Piece (2023) - S01E10 - I'M Luffy.mkv` | **wrong series** — the Netflix live-action, not the 1999 anime. Also shows the apostrophe defect |
-| `The Matrix \| Reloaded \| 2003.mkv` | `Matrix (1999).mkv` | **wrong film** — `parse_filename` drops everything after the first pipe, so it searches `The Matrix` and loses `Reloaded`. The year *is* parsed correctly (2003); it is then overwritten with the matched film's 1999 |
+| `The Matrix \| Reloaded \| 2003.mkv` | `Matrix Reloaded (2003).mkv` | correct — the pipe no longer costs the subtitle, so it finds the 2003 film and keeps its own year |
+| `SpongeBob SquarePants S01E01-03.mkv` | `Spongebob - S01E01-E03 - Cercasi Aiuto - L'Aspira Reef - Tè Sotto l'Albero.mkv` | correct-ish; TVDB's IT series name drops "SquarePants", which will not match an existing Plex folder |
+| `Doctor Who S05E01.mkv` | `Doctor Who - S05E01 - The Tomb of the Cybermen (1).mkv` | **wrong series** — matched the 1963 classic run, not the 2005 revival. The name is right *for that series* |
+| `One Piece S01E10 I'm Luffy.mkv` | `One Piece (2023) - S01E10 - I'm Luffy.mkv` | **wrong series** — the Netflix live-action, not the 1999 anime |
 | `Il Trionfo dell'Amore (1998).mp4` | — | unmatched |
 | `all'ombra dell'olmo (2010).avi` | — | unmatched |
 
-The three wrong matches share one root cause: **`results[0]` with no confidence
-scoring**, while `status` is set to `"matched"` regardless. This is the
-highest-value fix available, and it is a prerequisite for the automatic-move
-roadmap item — an unattended run would file *Doctor Who* under the wrong series.
+Both remaining wrong matches share one root cause: **`results[0]` with no
+confidence scoring**, while `status` is set to `"matched"` regardless. With the
+naming defects gone this is now the **highest-value fix left**, and it is a
+prerequisite for the automatic-move roadmap item — an unattended run would file
+*Doctor Who* under the wrong series, with a perfectly formed filename.
 
 Be precise about the year, because the obvious fix is half-done already: TMDB
 **does** receive the parsed year, TVDB does **not**. For movies the year is
@@ -371,30 +403,14 @@ parsed year with the matched film's year, so the wrong answer is laundered into
 looking self-consistent. The fix is confidence scoring plus treating the
 filename's year as evidence to *check against*, not as a hint to discard.
 
-Note the padding interaction: `Doctor Who` gets `E001` and `One Piece (2023)`
-gets `E10`, both derived from the *matched* series' episode count. Unexpected
-padding is usually evidence of a wrong match, not a padding bug.
+Padding is still derived from the *matched* series, so it remains a useful tell:
+unexpected padding usually means a wrong match, not a padding bug. It is a
+quieter tell than it was — per-season counts put almost everything at 2 digits.
 
 ## Known defects
 
-Tracked so they aren't rediscovered. Each has a failing or `xfail` test.
+Tracked so they aren't rediscovered. Each has a test.
 
-- `format_smart_title` capitalises **"the"** mid-sentence — the word is
-  missing from `LOWERCASE_WORDS` in `analyzer.py`.
-  `"the lord of the rings"` → `"The Lord of The Rings"`.
-  Test: `backend/test_naming.py::test_the_stays_lowercase_mid_sentence`.
-- `format_smart_title` breaks the **English saxon genitive** — `str.title()`
-  uppercases the letter after an apostrophe.
-  `"a bug's life"` → `"A Bug'S Life"`.
-  Test: `backend/test_naming.py::test_saxon_genitive_stays_lowercase`.
-- `parser.format_episode` emits `"N-N"` for a single-element episode list,
-  which `isEpisodeValid` then rejects because it requires `start < end`.
-- `parse_filename` **truncates at the first pipe**. `"The Matrix | Reloaded |
-  2003"` yields `clean_title="The Matrix"`, losing `Reloaded`, so the search
-  finds the 1999 film. The **year survives** (`year=2003`) — it is the title,
-  not the year, that the pipe destroys. `sanitize_name` maps `|` to `" - "` on
-  the way out, but nothing preserves it on the way in.
-  Pinned in `backend/test_parser.py`.
 - Nothing calls `load_dotenv()`. The keys reach the app only through
   `docker-compose.yml`, so a locally started `uvicorn` has none — and
   `enrich_media_item` guards on `if ... and tmdb_key`, so every row comes back
@@ -402,14 +418,6 @@ Tracked so they aren't rediscovered. Each has a failing or `xfail` test.
   indistinguishable from a genuine no-match, which is why a missing key
   presents as an API problem rather than a configuration one. Source `.env`
   manually; see the `dev` skill.
-- `POST /api/rename` builds its target as `old_path.parent / item.proposed_name`
-  without rejecting path separators or `..`, and `/api/scan` accepts any
-  directory. This is **worse than a join**: `Path.__truediv__` *discards* the
-  left operand when the right one is absolute, so a `proposed_name` of
-  `/etc/passwd` resolves to `/etc/passwd`, not to something under the parent.
-  Accepted for now: the container sits behind Traefik/Pangolin with Google SSO,
-  so this is a correctness risk (a bad path scatters files), not an exposure.
-  It becomes blocking the moment the automatic-move feature lands.
 - `diskcache` is created at the relative path `.cache`, so in the container it
   resolves to `/app/.cache`, which is not a volume — **the API cache is lost
   on every redeploy.**

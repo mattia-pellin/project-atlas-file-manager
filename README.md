@@ -30,6 +30,10 @@ docker-compose up -d --build
 ## Configuration Options
 All configuration is handled via environment variables passed to the container:
 - `MEDIA_DIR` (Required): The host path to mount inside the container at `/media`.
+- `MEDIA_ROOT` (Optional): The container-side root the app is allowed to read and
+  rename inside. Default `/media`, which is the other side of the `MEDIA_DIR` mount.
+  A scan may narrow to a subdirectory of it and to nothing else; anything outside is
+  rejected with a `400`. Set it explicitly when running the backend outside Docker.
 - `TMDB_API_KEY` (Required for Movies): Your TMDB API key.
 - `TVDB_API_KEY` (Required for Series): Your TVDB v4 API key.
 - `TVDB_PIN` (Optional but recommended): Your TVDB User PIN for extended API access.

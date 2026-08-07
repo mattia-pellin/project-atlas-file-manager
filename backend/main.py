@@ -1,6 +1,5 @@
 import os
 import uuid
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from .analyzer import enrich_media_item
 from .models import MediaItem, RenameRequest, ScanRequest
 from .parser import parse_filename
+from .paths import PathNotAllowed, resolve_rename_target, resolve_within_roots
 from .scanner import get_media_files
 
 app = FastAPI(title="Plex File Manager API")
@@ -26,8 +26,15 @@ app.add_middleware(
 async def scan_directory(request: ScanRequest):
     results = []
     try:
+        # The client picks the directory, so it is untrusted input. It may only ever
+        # be a configured root or a subdirectory of one.
+        scan_root = resolve_within_roots(request.directory)
+    except PathNotAllowed as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    try:
         # Fast iteration over local files
-        for file_path in get_media_files(request.directory):
+        for file_path in get_media_files(scan_root):
             filename = os.path.basename(file_path)
             parsed = parse_filename(filename)
 
@@ -66,8 +73,15 @@ async def rename_items(request: RenameRequest):
             results.append(item)
             continue
 
-        old_path = Path(item.original_path)
-        new_path = old_path.parent / item.proposed_name
+        try:
+            # Both sides are client-supplied: the source must be inside a configured
+            # root, and the name must be bare so the rename cannot leave that root.
+            old_path, new_path = resolve_rename_target(item.original_path, item.proposed_name)
+        except PathNotAllowed as e:
+            item.status = "error"
+            item.message = str(e)
+            results.append(item)
+            continue
 
         if not old_path.exists():
             item.status = "error"
@@ -86,7 +100,7 @@ async def rename_items(request: RenameRequest):
             item.status = "success"
             item.message = "Renamed successfully"
             item.original_path = str(new_path)
-            item.original_name = item.proposed_name
+            item.original_name = new_path.name
         except Exception as e:
             item.status = "error"
             item.message = f"Rename failed: {e!s}"

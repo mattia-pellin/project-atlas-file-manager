@@ -8,7 +8,7 @@ Never prints an API key - only whether each one is set.
 Usage, from the repo root:
 
     set -a; . ./.env; set +a
-    venv/bin/python .claude/skills/live-check/probe.py [directory]
+    .venv/bin/python .claude/skills/live-check/probe.py [directory]
 
 Defaults to test_media/. Pass --cache to reuse diskcache instead of forcing a
 fresh API round trip.

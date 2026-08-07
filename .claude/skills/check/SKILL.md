@@ -24,13 +24,14 @@ recreates it (bootstrap in CLAUDE.md).
 .venv/bin/python -m pytest
 ```
 
-Expected baseline: ruff clean, and pytest reporting **33 passed, 2 xfailed**.
+Expected baseline: ruff clean, and pytest reporting **88 passed**, no `xfail`.
 
-The two `xfailed` are correct. They are strict markers pinning two known
-`format_smart_title` defects (the missing `"the"` in `LOWERCASE_WORDS`, and
-`str.title()` breaking the saxon genitive). If either flips to `XPASS` the
-suite fails — that means someone changed naming behaviour, which is a finding,
-not something to paper over by deleting the marker.
+There are deliberately no `xfail` markers left: the two `format_smart_title`
+defects they pinned (the missing `"the"` in `LOWERCASE_WORDS`, and `str.title()`
+breaking the saxon genitive) are fixed, and their cases now assert the correct
+string in `backend/test_naming.py`. A *new* known-but-unfixed defect should still
+get `strict=True`, so an accidental fix shows up as `XPASS` rather than passing
+unnoticed.
 
 ## Frontend
 
