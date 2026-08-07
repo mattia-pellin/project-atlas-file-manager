@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Union
+
 
 class MediaItem(BaseModel):
     id: str  # Unique identifier for the frontend table
@@ -7,20 +7,22 @@ class MediaItem(BaseModel):
     original_name: str
     media_type: str  # "movie" or "series"
     clean_title: str
-    year: Optional[int] = None
-    season: Optional[int] = None
-    episode: Optional[Union[int, str]] = None
-    episode_title: Optional[str] = None
-    proposed_name: Optional[str] = None
-    tmdb_id: Optional[int] = None
-    tvdb_id: Optional[int] = None
-    status: str = "pending" # pending, renaming, error, success
-    message: Optional[str] = None
+    year: int | None = None
+    season: int | None = None
+    episode: int | str | None = None
+    episode_title: str | None = None
+    proposed_name: str | None = None
+    tmdb_id: int | None = None
+    tvdb_id: int | None = None
+    status: str = "pending"  # pending, renaming, error, success
+    message: str | None = None
+
 
 class ScanRequest(BaseModel):
     directory: str
     bypass_cache: bool = False
-    language_preference: List[str] = ["it", "en"]
+    language_preference: list[str] = ["it", "en"]
+
 
 class RenameRequest(BaseModel):
-    items: List[MediaItem]
+    items: list[MediaItem]

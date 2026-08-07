@@ -1,9 +1,11 @@
 import os
-import filetype
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
-def get_media_files(directory: str) -> Generator[Path, None, None]:
+import filetype
+
+
+def get_media_files(directory: str) -> Generator[Path]:
     """
     Recursively scans a directory and yields files that are detected as
     actual media (video or audio) via MIME-type checking, bypassing
@@ -19,15 +21,15 @@ def get_media_files(directory: str) -> Generator[Path, None, None]:
     for root, _, files in os.walk(directory):
         for file in files:
             file_path = Path(root) / file
-            
+
             # Skip hidden files or tiny files
-            if file.startswith('.') or file_path.stat().st_size < 1024:
+            if file.startswith(".") or file_path.stat().st_size < 1024:
                 continue
 
             try:
                 # filetype.guess looks at the first few bytes
                 kind = filetype.guess(str(file_path))
-                if kind is not None and (kind.mime.startswith('video/') or kind.mime.startswith('audio/')):
+                if kind is not None and (kind.mime.startswith("video/") or kind.mime.startswith("audio/")):
                     yield file_path
             except PermissionError as e:
                 # Raise explicit error instead of bypassing silently
