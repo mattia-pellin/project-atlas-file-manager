@@ -1,0 +1,48 @@
+[project]
+name = "atlas-file-manager"
+version = "1.9.0"
+description = "Scan, identify and mass-rename media files to Plex naming conventions"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["backend"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = ["venv", "backend/venv", ".cache", "frontend"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "ASYNC",  # flake8-async
+    "T20",    # flake8-print - print() is not logging
+    "RUF",
+]
+ignore = [
+    "B008",       # FastAPI Depends() in defaults is idiomatic
+    "E501",       # line length is enforced by `ruff format`, not the linter
+    "SIM105",     # try/except/pass reads fine here; contextlib.suppress is not clearer
+    "ASYNC240",   # suggests trio.Path; not applicable to a FastAPI/asyncio stack
+
+    # --- Tracked debt: these are real findings, muted only to keep the baseline
+    # green. Re-enable the rule in the same commit that clears the debt.
+    #
+    # TODO(logging): api_clients.py swallows API failures into print(). The
+    # planned auto-move + rollback journal needs real structured logging;
+    # convert every print() to a logger call and drop this ignore.
+    "T201",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/test_*.py" = ["T20"]
