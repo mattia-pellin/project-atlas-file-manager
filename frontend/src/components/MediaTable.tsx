@@ -3,6 +3,7 @@ import { DataGrid, GridColDef, GridRowSelectionModel, GridRenderCellParams, useG
 import { Chip, Box, Tooltip, useTheme } from '@mui/material';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { MediaItem } from '../api';
+import { isEpisodeValid, isRowValid, isSeasonValid, isYearValid } from '../lib/validation';
 import { motion } from 'framer-motion';
 
 interface MediaTableProps {
@@ -12,52 +13,6 @@ interface MediaTableProps {
     processRowUpdate: (newRow: MediaItem, oldRow: MediaItem) => MediaItem;
     showMessage: (message: string, severity: 'success' | 'error' | 'info' | 'warning') => void;
 }
-
-const isSeasonValid = (season: any) => {
-    if (season === undefined || season === null || season === '') return true;
-    const num = Number(season);
-    return Number.isInteger(num) && num >= 0 && num <= 99;
-};
-
-const isEpisodeValid = (episode: any) => {
-    if (episode === undefined || episode === null || episode === '') return false;
-    if (typeof episode === 'number') {
-        return Number.isInteger(episode) && episode >= 1 && episode <= 9999;
-    }
-    const str = String(episode).trim();
-    if (!str) return false;
-
-    if (/^\d+$/.test(str)) {
-        const num = parseInt(str, 10);
-        return num >= 1 && num <= 9999;
-    }
-
-    const match = str.match(/^(\d+)-(\d+)$/);
-    if (match) {
-        const start = parseInt(match[1], 10);
-        const end = parseInt(match[2], 10);
-        return start >= 1 && start <= 9999 && end >= 1 && end <= 9999 && start < end;
-    }
-
-    return false;
-};
-
-const isYearValid = (year: any) => {
-    if (year === undefined || year === null || year === '') return true;
-    const num = Number(year);
-    return Number.isInteger(num) && num >= 1900 && num <= 2100;
-};
-
-const isRowValid = (row: MediaItem) => {
-    if (row.original_name === row.proposed_name) return false;
-    if (row.media_type !== 'movie' && row.media_type !== 'episode') return false;
-    if (!isYearValid(row.year)) return false;
-    if (row.media_type === 'episode') {
-        if (!isSeasonValid(row.season)) return false;
-        if (!isEpisodeValid(row.episode)) return false;
-    }
-    return true;
-};
 
 export const MediaTable: React.FC<MediaTableProps> = ({
     items,
