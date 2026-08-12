@@ -32,9 +32,15 @@ neither should reappear.)
 | Frontend tests | `cd frontend && npm test` |
 | Dev servers | `/dev` |
 | Sync `.venv/` to the lock | `.venv/bin/uv sync` |
+| Reset the writable fixture copy | `scripts/sandbox-media.sh` |
+| Container, against that copy | `MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build` |
 
 The dev backend runs on **:8001** (Vite proxies `/api` there, see
 `frontend/vite.config.ts`); the production container serves both on **:8000**.
+
+**Never `docker compose up` without overriding `MEDIA_DIR`.** The one in `.env`
+is the real Plex library, and the container mounts it read-write. See *Trying the
+container against the fixtures* below.
 
 ## Dependencies are locked
 
@@ -454,6 +460,21 @@ as `forced_key`, not as a finished name, so the backend still builds the title,
 padding and episode titles: one decision across twenty-four files cannot produce
 twenty-four subtly different conventions. Movies are deliberately not grouped.
 
+**There is one bulk action, and it is the rescan.** No "match everything again"
+button exists, and none should be added. A match can now be changed by hand —
+triage picks a candidate, editing a cell re-derives the row — and a bulk re-match
+would walk over exactly those decisions, handing a chosen answer back to the
+scoring that had already got it wrong. What remains is deliberate and narrow:
+
+- `Ctrl+R` rescans, which re-reads the directory and matches what it finds. It
+  starts from nothing and says so; a scan never leaves rows unmatched, because
+  with the bulk re-match gone there would be no way to match them afterwards.
+- Editing an input cell drops the row to `pending` and re-matches **that row**,
+  on the edited value. The reducer reports which rows went stale
+  (`GridState.staleRowIds`) and the shell drains it; fill-down therefore
+  re-matches every row it filled. Editing `proposed_name` does not — writing the
+  name by hand is a decision, not staleness.
+
 Design tokens are in `src/styles/tokens.css` and are the only place a raw colour
 is written. The shape language is squared — 3px corners, no pills — and amber is
 the single accent, so amber always means "the thing you are acting on".
@@ -477,22 +498,41 @@ filesystem should be one thin, easily journaled layer.
 
 ## Measured behaviour against the live APIs
 
-Run `live-check` (`.claude/skills/live-check/`) to reproduce. Against the eight
-fixtures in `test_media/`, on 2026-08-12, with `lang=it,en`, after confidence
-scoring landed: **3 auto-selected, 4 held for review, 1 unmatched — and nothing
-is confidently wrong.** That is the number that matters. The previous run
-proposed more names (6) but two of them were wrong *and* labelled `"matched"`.
+Run `live-check` (`.claude/skills/live-check/`) to reproduce. Against the fifteen
+media fixtures in `test_media/`, on 2026-08-12, with `lang=it,en`, through the
+**container**: **7 auto-selected, 6 held for review, 2 unmatched — and nothing is
+confidently wrong.** That last clause is the number that matters; an earlier run
+proposed more names but two of them were wrong *and* labelled `"matched"`.
 
 | Fixture | Proposed | Status |
 | --- | --- | --- |
 | `Breaking Bad S02E10-12.mkv` | `Breaking Bad - S02E10-E12 - Game Over - Mandala - Phoenix.mkv` | `matched` 1.00 — correct |
 | `The Matrix \| Reloaded \| 2003.mkv` | `Matrix Reloaded (2003).mkv` | `matched` 1.00 — correct; the year now outranks the shorter *The Matrix* |
 | `Star Wars The Empire Strikes Back - 1980.mp4` | `L'Impero Colpisce Ancora (1980).mp4` | `matched` 0.91 — correct; scored against `original_title`, since the IT title no longer resembles the filename |
-| `Doctor Who S05E01.mkv` | `Doctor Who - S05E01 - The Tomb of the Cybermen (1).mkv` | `review` 0.50 — 1963 and 2005 are genuinely indistinguishable from this filename. Was silently wrong |
+| `Le Fabuleux Destin d'Amélie Poulain (2001).mkv` | `Il Favoloso Mondo di Amélie (2001).mkv` | `matched` 1.00 — correct, and the same `original_title` path: the IT title shares no word with the filename |
+| `Stargate SG-1/Season 1/Stargate SG-1 S01E01.mkv` | `Stargate SG-1 - S01E01 - I Figli degli dei (1).mkv` | `matched` 1.00 — renamed in place, inside the subdirectory. Was `Stargate Sg-1` until the acronym rule landed |
+| `The.Office.US.S03E11.…-GROUP.mkv` | `The Office (US) - S03E11 - Rientro dalle Vacanze.mkv` | `matched` 1.00 — guessit strips the whole release tail *and* the `US`, so the UK original is not excluded by the search; the year in the API's name is what settles it |
+| `One Piece - 1015.mkv` | `One Piece - S10E15 - Le Interferenze di Foxy.mkv` | `matched` 1.00 — **and wrong.** guessit reads absolute episode 1015 as S10E15, the API answers about S10E15, and confidence is high because nothing downstream can know better. Fix season and episode in the grid and the row re-matches |
+| `Doctor Who S05E01.mkv` … `S05E04.mkv` | `Doctor Who - S05E0n - The Tomb of the Cybermen (n).mkv` | `review` 0.50 ×4 — 1963 and 2005 are indistinguishable from these filenames. One triage pick settles all four |
 | `One Piece S01E10 I'm Luffy.mkv` | `One Piece (2023) - S01E10 - I'm Luffy.mkv` | `review` 0.50 — anime and live action tie. Was silently wrong |
 | `SpongeBob SquarePants S01E01-03.mkv` | `Spongebob - S01E01-E03 - Cercasi Aiuto - L'Aspira Reef - Tè Sotto l'Albero.mkv` | `review` 0.50 — two TVDB records tie, the second being the RU-named duplicate. Was `matched` |
-| `Il Trionfo dell'Amore (1998).mp4` | `Il Trionfo dell'Amore (2001).mp4` | `review` 0.55 — newly found, by retrying without the year filter. Flags the 1998/2001 disagreement |
+| `Il Trionfo dell'Amore (1998).mp4` | `Il Trionfo dell'Amore (2001).mp4` | `review` 0.55 — found by retrying without the year filter. Flags the 1998/2001 disagreement |
+| `BrBa S01E02.mkv` | — | `error` — the closest thing to `BrBa` is *La Brea*, and the scoring says so instead of renaming to it |
 | `all'ombra dell'olmo (2010).avi` | — | `error` — TMDB returns no candidate at all |
+
+`One Piece - 1015.mkv` is the one row here that is confidently wrong, and it is
+worth keeping that way: it is the only fixture that demonstrates what the UI is
+*for*. No amount of scoring recovers it — the parse is wrong before the API is
+ever asked — so the answer has to come from the user, and the grid is where it
+comes from.
+
+### Capitalisation
+
+`format_smart_title` title-cases, so it used to destroy acronyms: TVDB returns
+`Stargate SG-1` and the file was renamed `Stargate Sg-1`, into a folder Plex does
+not have. A word the *source* wrote in full capitals is now left alone — `SG-1`,
+`(US)`, `Rocky II` — unless the whole title is capitals, which is shouting rather
+than an acronym and is still title-cased (`THE MATRIX` → `The Matrix`).
 
 ### How the scoring works
 
@@ -581,15 +621,43 @@ the rollback journal; re-enable the rule in that commit.
 
 ## Testing this app for real
 
-`test_media/` holds eight deliberately awkward fixture files — multi-episode
-ranges, pipes in the title, elided Italian articles, a year with no
-parentheses. Point a scan at it to exercise the parser end to end. **It is a
-committed fixture directory: never let a rename run against it** unless you
-intend to change the fixtures, and restore them with `git checkout test_media/`
-if you do.
+`test_media/` holds fifteen deliberately awkward media files and one that is
+deliberately not media. Each one is there to break something specific:
 
-`backend/test_parser.py` pins the exact `parse_filename` output for all eight,
-offline and without touching the files. Adding a fixture without adding its
-expectation fails `test_every_fixture_is_pinned`, which is deliberate — the
-point of the pin is that the fixture set and the recorded behaviour cannot
-drift apart.
+| Fixture | What it exercises |
+| --- | --- |
+| `Breaking Bad S02E10-12.mkv`, `SpongeBob SquarePants S01E01-03.mkv` | multi-episode ranges, and the padding derived from the season's own count |
+| `The Matrix \| Reloaded \| 2003.mkv` | a pipe splitting the title into `alternative_title` |
+| `Star Wars The Empire Strikes Back - 1980.mp4` | a year with no parentheses; a match found through `original_title` |
+| `Il Trionfo dell'Amore (1998).mp4`, `all'ombra dell'olmo (2010).avi` | elided Italian articles, and a year the API disagrees with |
+| `Le Fabuleux Destin d'Amélie Poulain (2001).mkv` | accents, an elision, and an IT title that shares nothing with the filename |
+| `Doctor Who S05E01.mkv` … `S05E04.mkv` | **a series.** Four rows, one ambiguity (1963 vs 2005), settled by one triage pick applied to the whole series |
+| `One Piece S01E10 I'm Luffy.mkv` | an anime/live-action tie, and a season 1 that stops at episode 8 |
+| `One Piece - 1015.mkv` | absolute numbering, which guessit misreads as S10E15 — fixed by hand in the grid, not by the scoring |
+| `BrBa S01E02.mkv` | an abbreviation nothing can resolve; the title is corrected in the grid and the row re-matches |
+| `The.Office.US.S03E11.1080p.WEB-DL.x264-GROUP.mkv` | scene naming — dots, resolution, source, codec, release group — and an acronym |
+| `Stargate SG-1/Season 1/Stargate SG-1 S01E01.mkv` | a nested directory: the scan recurses and the rename stays put |
+| `appunti.txt` | not media. The magic-byte filter must skip it whatever its extension says |
+
+**It is a committed fixture directory: never let a rename run against it.**
+`backend/test_parser.py` pins the exact `parse_filename` output for every media
+fixture and asserts the scan sees exactly those files, so a rename that rewrote
+them would show up as a failing suite rather than as a quietly changed fixture
+set. Adding a fixture without adding its expectation fails
+`test_every_fixture_is_pinned`, which is deliberate. If you do rename against it
+by accident, `git checkout test_media/`.
+
+### Trying the container against the fixtures
+
+Rename it *is* the thing worth testing, so the container gets a throwaway copy
+instead:
+
+```
+scripts/sandbox-media.sh                                  # reset sandbox/media from test_media/
+MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build
+```
+
+`sandbox/` is gitignored. The `MEDIA_DIR` override is not optional and not
+cosmetic: without it compose reads the one in `.env`, which points at the real
+Plex library. Re-run the script to start from clean fixtures again; the app is
+on <http://localhost:8000>.

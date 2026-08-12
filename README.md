@@ -11,6 +11,7 @@ A modern, containerized Single Page Application built to recursively scan, ident
 - **Keyboard-first grid**: A dark, dense, editable grid you can run entirely from the keyboard — arrows to move, type to edit, `Space` to tick, `Ctrl+D` to fill a column down, `Ctrl+Z` to undo. `Ctrl+/` lists every shortcut.
 - **Triage**: When two shows genuinely look alike, the ambiguous files are queued and answered with a digit — and one answer can be applied to every episode of the series at once.
 - **Everything is tunable**: Scan directory, language preference, confidence thresholds and the API cache are all exposed in the settings panel (`Ctrl+,`).
+- **One bulk action**: a rescan re-reads the directory and matches it. Everything else is per-row and deliberate — pick a candidate in triage, or correct a cell and watch that row re-match on what you typed. Nothing re-matches a file you already decided.
 
 ## Quick Start (Docker Compose)
 
@@ -29,6 +30,23 @@ docker-compose up -d --build
 ```
 
 3. Access the web interface at `http://localhost:8000`.
+
+## Trying it without risking a library
+
+`test_media/` holds sixteen fixture files built to break the parser in a
+different way each — multi-episode ranges, scene naming, absolute anime
+numbering, accents and elisions, a four-episode series that no scoring can
+disambiguate, a nested `Show/Season 1/` directory, and one text file the scan
+must ignore. They are committed, and their exact names are pinned by the test
+suite, so the container is pointed at a throwaway copy instead:
+
+```bash
+scripts/sandbox-media.sh                                   # reset sandbox/media from test_media/
+MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build
+```
+
+Re-run the script whenever you want the fixtures back. The `MEDIA_DIR` override
+matters: without it, compose uses the one in your `.env` — your real library.
 
 ## Configuration Options
 All configuration is handled via environment variables passed to the container:
