@@ -8,6 +8,7 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from . import matching
+from .models import CandidateOut
 
 
 def is_retryable_error(exception: Exception) -> bool:
@@ -43,6 +44,16 @@ MAX_CACHED_RESULTS = 10
 # whole episode list for large series.
 MAX_DISAMBIGUATION_CANDIDATES = 3
 
+# How many scored candidates are handed to the UI for manual triage. Costs nothing
+# extra — they all come out of the search payload that was fetched anyway.
+MAX_EXPOSED_CANDIDATES = 5
+
+# Poster thumbnails. w185 is the smallest TMDB size that is still legible in a list.
+TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w185"
+
+# A candidate blurb is a tell-apart aid, not reading material.
+MAX_OVERVIEW_CHARS = 300
+
 
 def _movie_candidate(result: dict[str, Any]) -> matching.Candidate:
     """A TMDB search result, reduced for scoring.
@@ -77,6 +88,102 @@ def _series_candidate(entry: dict[str, Any]) -> matching.Candidate:
         names=tuple(dict.fromkeys(n for n in names if isinstance(n, str) and n)),
         year=year,
         payload=entry,
+    )
+
+
+def _trim(text: Any) -> str | None:
+    if not isinstance(text, str) or not text.strip():
+        return None
+    text = " ".join(text.split())
+    return text if len(text) <= MAX_OVERVIEW_CHARS else text[: MAX_OVERVIEW_CHARS - 1].rstrip() + "…"
+
+
+def _candidate_out(scored: matching.ScoredCandidate, source: str, selected_key: Any) -> CandidateOut:
+    """One scored candidate, flattened for the triage UI.
+
+    The poster and the blurb come out of the search payload already in hand, so
+    exposing candidates costs no extra API call. Only the two payload shapes are
+    known here — nothing downstream has to learn what TMDB or TVDB return.
+    """
+    candidate = scored.candidate
+    payload = candidate.payload if isinstance(candidate.payload, dict) else {}
+
+    if source == "tmdb":
+        poster_path = payload.get("poster_path")
+        poster_url = f"{TMDB_IMAGE_BASE}{poster_path}" if isinstance(poster_path, str) and poster_path else None
+    else:
+        raw = payload.get("image_url") or payload.get("thumbnail")
+        poster_url = raw if isinstance(raw, str) and raw.startswith("http") else None
+
+    return CandidateOut(
+        key=str(candidate.key),
+        label=candidate.label,
+        source=source,
+        year=candidate.year,
+        score=round(scored.score, 3),
+        title_score=round(scored.title_score, 3),
+        year_factor=round(scored.year_factor, 3),
+        poster_url=poster_url,
+        overview=_trim(payload.get("overview")),
+        # Compared as strings: TMDB keys arrive as ints and TVDB's as strings, and
+        # the UI only ever holds the stringified form.
+        selected=selected_key is not None and str(candidate.key) == str(selected_key),
+    )
+
+
+def candidates_for_ui(
+    ranked: tuple[matching.ScoredCandidate, ...], source: str, selected_key: Any = None
+) -> list[CandidateOut]:
+    """The top `MAX_EXPOSED_CANDIDATES` of a ranking, plus the selected one if it fell outside.
+
+    Episode evidence can hand the match to a candidate the title ranking put well
+    down the list, and a triage panel that omitted the row it says is selected
+    would be lying about what the name was built from.
+    """
+    exposed = list(ranked[:MAX_EXPOSED_CANDIDATES])
+    if selected_key is not None and not any(str(s.candidate.key) == str(selected_key) for s in exposed):
+        chosen = next((s for s in ranked if str(s.candidate.key) == str(selected_key)), None)
+        if chosen is not None:
+            exposed.append(chosen)
+    return [_candidate_out(scored, source, selected_key) for scored in exposed]
+
+
+def find_forced(ranked: list[matching.ScoredCandidate], forced_key: str) -> matching.ScoredCandidate | None:
+    """The candidate the user picked in triage, matched by its stringified key."""
+    return next((s for s in ranked if str(s.candidate.key) == str(forced_key)), None)
+
+
+def _forced_match(
+    ranked: list[matching.ScoredCandidate], chosen: matching.ScoredCandidate, payload: Any
+) -> matching.Decision:
+    """A hand-picked candidate, taken at face value.
+
+    Confidence 1.0 is not a claim about the title similarity — the user looked at
+    the candidates and said which one it is, and that is better evidence than any
+    string comparison. The reason line says so, so a `matched` row that was
+    settled by hand is still distinguishable from one the scoring was sure of.
+    """
+    return matching.Decision(
+        verdict="matched",
+        confidence=1.0,
+        reason=f"Chosen by hand: {chosen.candidate.label}",
+        payload=payload,
+        ranked=tuple(ranked),
+    )
+
+
+def _forced_gone(ranked: list[matching.ScoredCandidate], source: str, title: str) -> matching.Decision:
+    """The picked candidate is not in the results any more (a cache expiry, say).
+
+    Rejected rather than silently re-scored: falling back to whatever the scoring
+    now prefers would rename the file to a title the user never chose, which is
+    the one failure this application must not have.
+    """
+    return matching.Decision(
+        verdict="rejected",
+        confidence=0.0,
+        reason=f"The chosen candidate is no longer among {source}'s results for {title!r} — pick again",
+        ranked=tuple(ranked),
     )
 
 
@@ -144,16 +251,34 @@ class TMDBClient:
         return []
 
     async def search_movie(
-        self, title: str, year: int | None, language_prefs: list[str], bypass_cache: bool = False
+        self,
+        title: str,
+        year: int | None,
+        language_prefs: list[str],
+        bypass_cache: bool = False,
+        forced_key: str | None = None,
+        thresholds: matching.Thresholds = matching.DEFAULT_THRESHOLDS,
     ) -> matching.Decision:
         """Scores every candidate TMDB returned and reports how much the winner is trusted.
 
         Returns a `Decision`, not a bare result: the caller must not be able to
         use the match without also seeing the confidence attached to it.
+
+        `forced_key` is a candidate the user picked by hand in triage. It bypasses
+        scoring entirely — a human looking at the poster is better evidence than
+        any title similarity — and costs no extra request, because the search
+        results it is chosen from are the cached ones.
         """
         results = await self._search_movie_results(title, year, language_prefs, bypass_cache)
         ranked = matching.rank_candidates(title, year, [_movie_candidate(r) for r in results])
-        return matching.decide(ranked)
+
+        if forced_key is not None:
+            chosen = find_forced(ranked, forced_key)
+            if chosen is None:
+                return _forced_gone(ranked, "TMDB", title)
+            return _forced_match(ranked, chosen, payload=chosen.candidate.payload)
+
+        return matching.decide(ranked, thresholds=thresholds)
 
 
 class TVDBClientV4:
@@ -242,6 +367,8 @@ class TVDBClientV4:
         season: int | None = None,
         episode: tuple[int, int] | None = None,
         bypass_cache: bool = False,
+        forced_key: str | None = None,
+        thresholds: matching.Thresholds = matching.DEFAULT_THRESHOLDS,
     ) -> matching.Decision:
         """Picks the series a file belongs to, and reports how much that pick is trusted.
 
@@ -257,18 +384,43 @@ class TVDBClientV4:
         to a confident match. Hence the two guards below: a failed lookup is never
         read as absence, and the evidence may break a tie between equals but never
         promote a weaker title.
+
+        `forced_key` short-circuits all of it: the user has looked at the candidates
+        and said which series it is, so neither the scoring nor the episode evidence
+        gets a vote. It reuses the cached search and the cached extended record, so
+        applying one triage choice to every episode of a series costs no requests.
         """
         entries = await self._search_series_results(title, language_prefs, bypass_cache)
-        ranked = matching.rank_candidates(title, year, [_series_candidate(e) for e in entries])
+        # The complete title ranking, kept whole. `ranked` below may be narrowed to the
+        # candidates that survived the episode check; this one is what the UI is shown,
+        # because the survivor rule is a heuristic and the user must still see who lost.
+        all_ranked = matching.rank_candidates(title, year, [_series_candidate(e) for e in entries])
+        ranked = all_ranked
         if not ranked:
             return matching.Decision(verdict="rejected", confidence=0.0, reason="No series matched that title")
 
         token = await self.get_token(bypass_cache)
         if not token:
-            return matching.Decision(verdict="rejected", confidence=0.0, reason="TVDB authentication failed")
+            return matching.Decision(
+                verdict="rejected", confidence=0.0, reason="TVDB authentication failed", ranked=tuple(all_ranked)
+            )
 
         # Extended payloads fetched while disambiguating, so the winner is not re-fetched.
         fetched: dict[Any, dict[str, Any]] = {}
+
+        if forced_key is not None:
+            chosen = find_forced(all_ranked, forced_key)
+            if chosen is None:
+                return _forced_gone(all_ranked, "TVDB", title)
+            series_data = await self.get_series_extended(chosen.candidate.key, language_prefs, token, bypass_cache)
+            if not series_data:
+                return matching.Decision(
+                    verdict="rejected",
+                    confidence=0.0,
+                    reason=f"TVDB returned no details for {chosen.candidate.label}",
+                    ranked=tuple(all_ranked),
+                )
+            return _forced_match(all_ranked, chosen, payload=series_data)
 
         contenders = matching.tied_leaders(ranked, MAX_DISAMBIGUATION_CANDIDATES)
         disambiguated = False
@@ -302,9 +454,9 @@ class TVDBClientV4:
                 ranked = survivors
                 disambiguated = len(survivors) == 1
 
-        decision = matching.decide(ranked, disambiguated=disambiguated)
+        decision = matching.decide(ranked, disambiguated=disambiguated, thresholds=thresholds)
         if not decision.accepted:
-            return decision
+            return replace(decision, ranked=tuple(all_ranked))
 
         series_id = ranked[0].candidate.key
         series_data = fetched.get(series_id) or await self.get_series_extended(
@@ -315,10 +467,13 @@ class TVDBClientV4:
                 verdict="rejected",
                 confidence=decision.confidence,
                 reason=f"TVDB returned no details for {ranked[0].candidate.label}",
+                ranked=tuple(all_ranked),
             )
 
         # The payload the caller needs is the extended record, not the search stub.
-        return replace(decision, payload=series_data)
+        # `ranked` goes back to the full list: the episode check may have narrowed the
+        # decision, but the UI still has to offer every candidate for a manual override.
+        return replace(decision, payload=series_data, ranked=tuple(all_ranked))
 
     async def get_episode_translation(
         self, ep_id: int, language_prefs: list[str], bypass_cache: bool = False
@@ -431,9 +586,10 @@ class TVDBClientV4:
     async def get_series_extended(
         self, series_id: int, language_prefs: list[str], token: str, bypass_cache: bool = False
     ) -> dict[str, Any] | None:
-        # _v3: the payload shape changed (total_episodes -> season_episode_counts). A stale
-        # _v2 entry would silently fall back to 2-digit padding on a 100+ episode season.
-        cache_key = get_cache_key("tvdb_series_ext_v3", series_id, ",".join(language_prefs))
+        # _v4: the payload gained `tvdb_id`. A stale _v3 entry has no id in it, so the
+        # analyzer could not record which candidate the name was built from and the
+        # triage panel would show nothing as selected.
+        cache_key = get_cache_key("tvdb_series_ext_v4", series_id, ",".join(language_prefs))
         if not bypass_cache and cache_key in cache:
             return cache[cache_key]
 
@@ -477,6 +633,7 @@ class TVDBClientV4:
             year = year_raw or (first_aired[:4] if first_aired else None)
 
             result = {
+                "tvdb_id": series_id,
                 "name": series_translation or series_info.get("name"),
                 "season_episode_counts": season_episode_counts,
                 "episodes_raw": episodes,

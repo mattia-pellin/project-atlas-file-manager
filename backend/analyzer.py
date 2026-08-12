@@ -2,7 +2,8 @@ import os
 import re
 from typing import Any
 
-from .api_clients import TMDBClient, TVDBClientV4, calculate_padding
+from . import matching
+from .api_clients import TMDBClient, TVDBClientV4, calculate_padding, candidates_for_ui
 from .models import MediaItem
 from .parser import parse_filename
 
@@ -231,7 +232,25 @@ def parse_episode_range(episode: Any) -> tuple[int, int] | None:
     return None
 
 
-async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_cache: bool = False) -> MediaItem:
+async def enrich_media_item(
+    item: MediaItem,
+    language_prefs: list[str],
+    bypass_cache: bool = False,
+    forced_key: str | None = None,
+    thresholds: matching.Thresholds = matching.DEFAULT_THRESHOLDS,
+) -> MediaItem:
+    """Fills in `proposed_name`, `status`, `confidence` and the candidate list.
+
+    `forced_key` is a candidate the user picked in triage; it settles the match by
+    hand instead of by scoring. Because the search results and the extended series
+    record are both cached, replaying one choice across every episode of a series
+    costs no additional API request.
+    """
+    # Stale candidates from the previous analysis of this row must not survive: the
+    # client sends the whole item back, and a list that no longer matches the status
+    # would offer a pick that is not on the table any more.
+    item.candidates = []
+
     # If standard scan, we parse the filename here. If re-analyzing, we use user overrides.
     if not item.media_type or item.media_type == "unknown":
         parsed = parse_filename(item.original_name)
@@ -255,8 +274,17 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
 
     if item.media_type == "movie" and tmdb_key:
         client = TMDBClient(tmdb_key)
-        decision = await client.search_movie(item.clean_title, item.year, language_prefs, bypass_cache)
+        decision = await client.search_movie(
+            item.clean_title,
+            item.year,
+            language_prefs,
+            bypass_cache,
+            forced_key=forced_key,
+            thresholds=thresholds,
+        )
         movie_data = decision.payload
+        item.tmdb_id = movie_data.get("id") if movie_data else None
+        item.candidates = candidates_for_ui(decision.ranked, "tmdb", selected_key=item.tmdb_id)
         if movie_data:
             title = movie_data.get("title") or movie_data.get("original_title")
             # Format: Title Case, replace slashes with dashes, remove illegal chars
@@ -274,7 +302,6 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
             if item.year:
                 item.proposed_name += f" ({item.year})"
             item.proposed_name += ext
-            item.tmdb_id = movie_data.get("id")
             item.confidence = round(decision.confidence, 3)
             item.status = decision.verdict
             item.message = decision.reason or None
@@ -309,8 +336,17 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
             season=season_number,
             episode=ep_range,
             bypass_cache=bypass_cache,
+            forced_key=forced_key,
+            thresholds=thresholds,
         )
         series_data = decision.payload
+        # The extended record carries its own id, which is the only way to know which
+        # of the ranked candidates the name below is about to be built from. TVDB
+        # hands ids over as strings, so the model's int field gets the converted one
+        # while the candidate list is matched on the raw value.
+        selected_key = series_data.get("tvdb_id") if series_data else None
+        item.tvdb_id = int(selected_key) if str(selected_key or "").isdigit() else None
+        item.candidates = candidates_for_ui(decision.ranked, "tvdb", selected_key=selected_key)
         if series_data:
             series_name = sanitize_name(format_smart_title(series_data.get("name", "")))
 

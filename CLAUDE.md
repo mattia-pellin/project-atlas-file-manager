@@ -293,16 +293,51 @@ POST /api/analyze  → analyzer.enrich_media_item()
                                                       translations
                      → matching.rank_candidates() → matching.decide()
                      → format_smart_title() → sanitize_name()
-                   ← MediaItem with proposed_name, status and confidence
+                   ← MediaItem + proposed_name, status, confidence, candidates[]
 
 POST /api/rename   → paths.resolve_rename_target()  containment + bare-name check
                    → Path.rename(), one item at a time, per-item status
+
+GET  /api/config   ← roots, languages, cache stats, thresholds, key presence
+DEL  /api/cache    → drops every cached API payload (raw responses only)
 ```
+
+`/api/analyze` takes three overrides as query parameters: `forced_key`,
+`match_threshold` and `review_threshold`. The thresholds are per-request rather
+than server state, so two concurrent analyses cannot disagree about which bands
+were in force; an impossible pair is a `400` rather than being clamped, because a
+silently corrected threshold makes the UI report a band that is not the one
+applied.
 
 The frontend calls `/api/analyze` **once per file, all in parallel**
 (`App.tsx`, `handleScan`). There is no concurrency cap on either side, and
 `api_clients.py` opens a fresh `httpx.AsyncClient` per request. Keep this in
 mind before adding more per-item network calls.
+
+### Candidates and the hand-picked match
+
+`MediaItem.candidates` carries every candidate that was scored, best first, with
+the one the name was built from flagged `selected`. It costs nothing: the poster,
+the blurb and the scores all come out of the search payload that was fetched
+anyway. Confidence is not a fix for two shows called *One Piece* — no threshold
+tells them apart, only the user can — so the list is populated even on rejected
+rows, which are precisely the rows whose alternatives are needed.
+
+The list is the **full title ranking**, including candidates the episode evidence
+eliminated. That is the same lesson as `elimination_is_trustworthy`: TVDB's
+arc-sized seasons mean a real `S01E10` is missing from the series it belongs to,
+so the eliminated candidate can be the right answer and may not be hidden.
+
+Sending a candidate's `key` back as `forced_key` settles the match by hand:
+scoring and episode evidence both stand down, confidence is 1.0 and the message
+says `Chosen by hand: …`, so a row settled by a human stays distinguishable from
+one the scoring was sure of. A key that is no longer in the results is a
+**rejection**, never a silent re-score — falling back to whatever the scoring now
+prefers would rename the file to a title nobody chose.
+
+Replaying one choice across a whole series is therefore free: the search is
+cached on the title and `get_series_extended` on the id, so the second and
+subsequent episodes make no request at all.
 
 ### Files that matter
 

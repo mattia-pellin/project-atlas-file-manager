@@ -39,3 +39,7 @@ All configuration is handled via environment variables passed to the container:
 - `TVDB_PIN` (Optional but recommended): Your TVDB User PIN for extended API access.
 - `PORT` (Optional): The port to bind to. Default is `8000`.
 - `CACHE_TTL_HOURS` (Optional): How long API requests should be cached locally. Default `24`.
+- `LANG_PREFS` (Optional): Comma-separated title languages, most preferred first.
+  Default `it,en`. This is only the value the UI starts with — the language pins,
+  the cache switch and the confidence thresholds are all overridable per request
+  from the settings panel, and `GET /api/config` is what the UI reads them from.

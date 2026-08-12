@@ -5,10 +5,19 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from . import matching
 from .analyzer import enrich_media_item
-from .models import MediaItem, RenameRequest, ScanRequest
+from .api_clients import MAX_EXPOSED_CANDIDATES, cache
+from .models import ConfigOut, MediaItem, RenameRequest, ScanRequest, ThresholdsOut
 from .parser import parse_filename
-from .paths import PathNotAllowed, resolve_rename_target, resolve_within_roots
+from .paths import (
+    DEFAULT_MEDIA_ROOT,
+    MEDIA_ROOT_VAR,
+    PathNotAllowed,
+    allowed_roots,
+    resolve_rename_target,
+    resolve_within_roots,
+)
 from .scanner import get_media_files
 
 app = FastAPI(title="Plex File Manager API")
@@ -56,10 +65,46 @@ async def scan_directory(request: ScanRequest):
 
 
 @app.post("/api/analyze", response_model=MediaItem)
-async def analyze_item(item: MediaItem, bypass_cache: bool = False, lang_prefs: str = "it,en"):
-    # Re-analyze a single item against APIs
+async def analyze_item(
+    item: MediaItem,
+    bypass_cache: bool = False,
+    lang_prefs: str = "it,en",
+    forced_key: str | None = None,
+    match_threshold: float | None = None,
+    review_threshold: float | None = None,
+):
+    """Re-analyze a single item against the APIs.
+
+    `forced_key` is the `key` of a `CandidateOut` the user picked in triage: the
+    match is then settled by hand and the name rebuilt from that candidate, off the
+    cached search. Sending the same key for every episode of a series is how one
+    triage decision is applied to the whole show.
+
+    The thresholds are per-request rather than server state, so the user can move
+    the confidence bands from the settings panel without two concurrent analyses
+    disagreeing about which bands were in force.
+    """
     prefs = [lang.strip() for lang in lang_prefs.split(",")]
-    return await enrich_media_item(item, prefs, bypass_cache)
+    thresholds = _thresholds(match_threshold, review_threshold)
+    return await enrich_media_item(item, prefs, bypass_cache, forced_key=forced_key, thresholds=thresholds)
+
+
+def _thresholds(match: float | None, review: float | None) -> matching.Thresholds:
+    """Validate the two confidence bands the client may override.
+
+    Rejected rather than clamped: a threshold silently corrected to something else
+    would make the UI report a band that is not the one being applied.
+    """
+    resolved = matching.Thresholds(
+        match=matching.MATCH_THRESHOLD if match is None else match,
+        review=matching.REVIEW_THRESHOLD if review is None else review,
+    )
+    for name, value in (("match_threshold", resolved.match), ("review_threshold", resolved.review)):
+        if not 0.0 <= value <= 1.0:
+            raise HTTPException(status_code=400, detail=f"{name} must be between 0 and 1")
+    if resolved.review > resolved.match:
+        raise HTTPException(status_code=400, detail="review_threshold must not exceed match_threshold")
+    return resolved
 
 
 @app.post("/api/rename", response_model=list[MediaItem])
@@ -108,6 +153,48 @@ async def rename_items(request: RenameRequest):
         results.append(item)
 
     return results
+
+
+@app.get("/api/config", response_model=ConfigOut)
+async def get_config():
+    """Everything the settings panel needs, so the UI never hard-codes a default.
+
+    `MEDIA_ROOT` in particular: a scan outside it is a 400, and the frontend
+    shipped its own guess of the path, which is how a misconfigured mount used to
+    look like a broken scan.
+    """
+    roots = [str(root) for root in allowed_roots()]
+    return ConfigOut(
+        media_roots=roots,
+        default_directory=os.getenv(MEDIA_ROOT_VAR, DEFAULT_MEDIA_ROOT),
+        language_preference=[lang.strip() for lang in os.getenv("LANG_PREFS", "it,en").split(",") if lang.strip()],
+        cache_ttl_hours=int(os.getenv("CACHE_TTL_HOURS", 24)),
+        cache_entries=len(cache),
+        cache_size_bytes=cache.volume(),
+        thresholds=ThresholdsOut(
+            match=matching.MATCH_THRESHOLD,
+            review=matching.REVIEW_THRESHOLD,
+            decisive_margin=matching.DECISIVE_MARGIN,
+        ),
+        max_candidates=MAX_EXPOSED_CANDIDATES,
+        # Booleans only. A missing key otherwise surfaces as "Could not find a
+        # match", which sends the user looking at the wrong problem.
+        tmdb_configured=bool(os.getenv("TMDB_API_KEY")),
+        tvdb_configured=bool(os.getenv("TVDB_API_KEY")),
+    )
+
+
+@app.delete("/api/cache")
+async def clear_cache():
+    """Drop every cached API payload.
+
+    Safe by construction: the cache only ever holds raw TMDB/TVDB responses, never
+    scores and never anything about the local filesystem, so the worst case is the
+    next scan being slow.
+    """
+    removed = len(cache)
+    cache.clear()
+    return {"cleared": removed}
 
 
 @app.get("/api/health")

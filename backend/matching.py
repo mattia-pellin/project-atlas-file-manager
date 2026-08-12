@@ -62,6 +62,22 @@ _TRAILING_YEAR = re.compile(r"\s*\((?:19|20)\d{2}\)\s*$")
 
 
 @dataclass(frozen=True)
+class Thresholds:
+    """The two bands a user is allowed to move, carried together.
+
+    They are per-request rather than global mutable state: `/api/analyze` takes
+    them as query parameters, so two concurrent analyses cannot read a threshold
+    that a third request changed halfway through.
+    """
+
+    match: float = MATCH_THRESHOLD
+    review: float = REVIEW_THRESHOLD
+
+
+DEFAULT_THRESHOLDS = Thresholds()
+
+
+@dataclass(frozen=True)
 class Candidate:
     """One search result, reduced to what scoring needs.
 
@@ -254,7 +270,12 @@ def elimination_is_trustworthy(survivors: list[ScoredCandidate], eliminated: lis
     return survivors[0].score >= best_eliminated
 
 
-def decide(ranked: list[ScoredCandidate], *, disambiguated: bool = False) -> Decision:
+def decide(
+    ranked: list[ScoredCandidate],
+    *,
+    disambiguated: bool = False,
+    thresholds: Thresholds = DEFAULT_THRESHOLDS,
+) -> Decision:
     """Turns a ranking into a verdict, a confidence and a message for the UI.
 
     `disambiguated=True` means the caller has already eliminated the rival
@@ -267,7 +288,7 @@ def decide(ranked: list[ScoredCandidate], *, disambiguated: bool = False) -> Dec
     leader = ranked[0]
     conf = leader.score if disambiguated else confidence(ranked)
 
-    if conf < REVIEW_THRESHOLD:
+    if conf < thresholds.review:
         return Decision(
             verdict="rejected",
             confidence=conf,
@@ -275,7 +296,7 @@ def decide(ranked: list[ScoredCandidate], *, disambiguated: bool = False) -> Dec
             ranked=tuple(ranked),
         )
 
-    if conf >= MATCH_THRESHOLD:
+    if conf >= thresholds.match:
         return Decision(
             verdict="matched", confidence=conf, reason="", payload=leader.candidate.payload, ranked=tuple(ranked)
         )
