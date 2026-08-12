@@ -249,15 +249,23 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
 
     ext = os.path.splitext(item.original_name)[1]
 
+    # Why the API declined to produce a name, when it did. Kept out of the branches
+    # so the final "no name" path can say something better than "Could not find a match".
+    match_reason: str | None = None
+
     if item.media_type == "movie" and tmdb_key:
         client = TMDBClient(tmdb_key)
-        movie_data = await client.search_movie(item.clean_title, item.year, language_prefs, bypass_cache)
+        decision = await client.search_movie(item.clean_title, item.year, language_prefs, bypass_cache)
+        movie_data = decision.payload
         if movie_data:
             title = movie_data.get("title") or movie_data.get("original_title")
             # Format: Title Case, replace slashes with dashes, remove illegal chars
             title = sanitize_name(format_smart_title(title))
 
-            # Map API year to item
+            # Map API year to item. Safe to overwrite only because the parsed year has
+            # already been scored against this candidate: a disagreement has cost the
+            # match confidence by now, instead of being laundered into a tidy name.
+            parsed_year = item.year
             api_year = movie_data.get("release_date", "")[:4]
             if api_year and api_year.isdigit():
                 item.year = int(api_year)
@@ -267,28 +275,48 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
                 item.proposed_name += f" ({item.year})"
             item.proposed_name += ext
             item.tmdb_id = movie_data.get("id")
-            item.status = "matched"
+            item.confidence = round(decision.confidence, 3)
+            item.status = decision.verdict
+            item.message = decision.reason or None
+
+            if parsed_year and item.year and parsed_year != item.year:
+                note = f"Filename says {parsed_year}, TMDB says {item.year}"
+                item.message = f"{item.message} — {note}" if item.message else note
+        else:
+            match_reason = decision.reason
 
     elif item.media_type == "episode" and tvdb_key:
+        # Resolved before the search, both because a bad episode number is a better
+        # error than a failed match and because the number is the evidence that tells
+        # two same-named series apart.
+        ep_range = parse_episode_range(item.episode)
+        if ep_range is None:
+            # Refuse rather than default to episode 1. A name built on an invented
+            # number looks correct and files the episode in the wrong place.
+            item.status = "error"
+            item.message = "Could not determine the episode number"
+            return item
+        start_ep, end_ep = ep_range
+
+        # When the season is unknown we assume S01, so we size and search against S01 too.
+        season_number = item.season if item.season is not None else 1
+
         client = TVDBClientV4(tvdb_key, tvdb_pin)
-        series_data = await client.search_series(item.clean_title, language_prefs, bypass_cache)
+        decision = await client.search_series(
+            item.clean_title,
+            language_prefs,
+            year=item.year,
+            season=season_number,
+            episode=ep_range,
+            bypass_cache=bypass_cache,
+        )
+        series_data = decision.payload
         if series_data:
             series_name = sanitize_name(format_smart_title(series_data.get("name", "")))
 
             # Padding comes from this season's episode count, not the series total.
-            # When the season is unknown we assume S01, so we size against S01 too.
-            season_number = item.season if item.season is not None else 1
             pad = calculate_padding(series_data.get("season_episode_counts", {}).get(season_number, 0))
             s_str = f"{season_number:02d}"
-
-            ep_range = parse_episode_range(item.episode)
-            if ep_range is None:
-                # Refuse rather than default to episode 1. A name built on an invented
-                # number looks correct and files the episode in the wrong place.
-                item.status = "error"
-                item.message = "Could not determine the episode number"
-                return item
-            start_ep, end_ep = ep_range
 
             ep_titles = []
             for num in range(start_ep, end_ep + 1):
@@ -329,10 +357,16 @@ async def enrich_media_item(item: MediaItem, language_prefs: list[str], bypass_c
                     pass
 
             item.proposed_name = proposed
-            item.status = "matched"
+            item.confidence = round(decision.confidence, 3)
+            item.status = decision.verdict
+            item.message = decision.reason or None
+        else:
+            match_reason = decision.reason
 
     if not item.proposed_name:
         item.status = "error"
-        item.message = "Could not find a match"
+        # The scoring reason when there is one: "no candidate cleared the bar" and
+        # "the API key is missing" both used to read as "Could not find a match".
+        item.message = match_reason or "Could not find a match"
 
     return item

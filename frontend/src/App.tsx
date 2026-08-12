@@ -185,8 +185,16 @@ function App() {
 
             const finalSortedItems = sortMediaItems(updatedItems);
             setItems(finalSortedItems);
-            showMessage('Analysis complete', 'success');
-            // Auto-select successes for rename
+
+            // Only confident matches are auto-selected. A 'review' row still has a
+            // proposed name, but the backend could not tell it apart from another
+            // title, so it must be ticked by hand — say so, or the row just looks skipped.
+            const reviewCount = finalSortedItems.filter(i => i.status === 'review').length;
+            if (reviewCount > 0) {
+                showMessage(`Analysis complete — ${reviewCount} need review before renaming`, 'warning');
+            } else {
+                showMessage('Analysis complete', 'success');
+            }
             setSelectionModel(finalSortedItems.filter(i => i.status === 'matched').map(i => i.id));
         } catch (e: any) {
             showMessage(`Scan failed: ${e.message}`, 'error');

@@ -87,6 +87,9 @@ export const MediaTable: React.FC<MediaTableProps> = ({
                 const colorMap: Record<string, 'default' | 'success' | 'error' | 'warning' | 'info'> = {
                     'pending': 'default',
                     'matched': 'info',
+                    // Amber, and never auto-selected: the API matched something but the
+                    // scoring is not confident it is the right title. Hover for why.
+                    'review': 'warning',
                     'success': 'success',
                     'error': 'error',
                     'renaming': 'warning'

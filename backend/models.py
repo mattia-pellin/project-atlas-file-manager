@@ -14,7 +14,11 @@ class MediaItem(BaseModel):
     proposed_name: str | None = None
     tmdb_id: int | None = None
     tvdb_id: int | None = None
-    status: str = "pending"  # pending, renaming, error, success
+    # "review" is a match the scoring is not sure of: the name is proposed and
+    # editable, but the row is not auto-selected, so renaming it takes a deliberate
+    # tick. See backend/matching.py for how the confidence is derived.
+    status: str = "pending"  # pending, matched, review, renaming, error, success
+    confidence: float | None = None
     message: str | None = None
 
 

@@ -9,6 +9,7 @@ import pytest
 
 from backend.analyzer import enrich_media_item, parse_episode_range
 from backend.api_clients import calculate_padding
+from backend.matching import Decision
 from backend.models import MediaItem
 
 
@@ -52,12 +53,14 @@ def _tvdb_series(name: str, season_episode_counts: dict[int, int], episodes_raw:
     }
 
 
-def _mock_tvdb(mocker, series: dict) -> None:
+def _mock_tvdb(mocker, series: dict, *, verdict: str = "matched", confidence: float = 1.0) -> None:
     """Wire a TVDB response in, with the API keys present and parsing bypassed."""
     instance = mocker.patch("backend.analyzer.TVDBClientV4").return_value
 
     async def search(*args, **kwargs):
-        return series
+        # `search_series` hands back a Decision, never a bare payload: the caller
+        # must not be able to use a match without seeing its confidence.
+        return Decision(verdict=verdict, confidence=confidence, reason="", payload=series)
 
     async def translation(*args, **kwargs):
         return None
@@ -183,3 +186,58 @@ async def test_an_unknown_season_is_treated_as_season_one_throughout(mocker) -> 
     _mock_tvdb(mocker, _tvdb_series("Some Show", {1: 20}, [{"seasonNumber": 1, "number": 3, "name": "Third"}]))
     item = await enrich_media_item(_episode_item("Some Show 03.mkv", None, 3), ["it", "en"])
     assert item.proposed_name == "Some Show - S01E03 - Third.mkv"
+
+
+@pytest.mark.asyncio
+async def test_a_low_confidence_match_still_proposes_a_name_but_is_not_matched(mocker) -> None:
+    """A `review` row keeps its name and gains a reason; only the status differs.
+
+    The name has to survive, because the user needs to see the candidate to judge
+    it. What must not survive is the row being auto-selected for rename — the
+    frontend keys that off `status === 'matched'`.
+    """
+    instance = mocker.patch("backend.analyzer.TVDBClientV4").return_value
+
+    async def search(*args, **kwargs):
+        return Decision(
+            verdict="review",
+            confidence=0.5,
+            reason="Ambiguous (0.50): Doctor Who (1963) and Doctor Who (2005) score alike",
+            payload=_tvdb_series("Doctor Who", {5: 40}, [{"seasonNumber": 5, "number": 1, "name": "The Tomb"}]),
+        )
+
+    async def translation(*args, **kwargs):
+        return None
+
+    instance.search_series.side_effect = search
+    instance.get_episode_translation.side_effect = translation
+    mocker.patch(
+        "os.getenv", side_effect=lambda key, default=None: "dummy" if "KEY" in key or "PIN" in key else default
+    )
+
+    item = await enrich_media_item(_episode_item("Doctor Who S05E01.mkv", 5, 1), ["it", "en"])
+    assert item.proposed_name == "Doctor Who - S05E01 - The Tomb.mkv"
+    assert item.status == "review"
+    assert item.confidence == 0.5
+    assert "Ambiguous" in item.message
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_match_reports_why_instead_of_could_not_find_a_match(mocker) -> None:
+    """ "No candidate cleared the bar" and "no candidate at all" are different faults."""
+    instance = mocker.patch("backend.analyzer.TVDBClientV4").return_value
+
+    async def search(*args, **kwargs):
+        return Decision(
+            verdict="rejected", confidence=0.2, reason="No confident match — closest was Bob (1999) at 0.20"
+        )
+
+    instance.search_series.side_effect = search
+    mocker.patch(
+        "os.getenv", side_effect=lambda key, default=None: "dummy" if "KEY" in key or "PIN" in key else default
+    )
+
+    item = await enrich_media_item(_episode_item("Some Show S01E01.mkv", 1, 1), ["it", "en"])
+    assert item.proposed_name is None
+    assert item.status == "error"
+    assert item.message == "No confident match — closest was Bob (1999) at 0.20"

@@ -49,7 +49,7 @@ async def main() -> int:
     print(f"\nscanning {args.directory}  (lang={prefs}, cache={'on' if args.cache else 'bypassed'})")
     print("-" * 78)
 
-    ok = err = 0
+    ok = review = err = 0
     for file_path in sorted(get_media_files(args.directory)):
         filename = os.path.basename(file_path)
         parsed = parse_filename(filename)
@@ -74,14 +74,18 @@ async def main() -> int:
             print(f"  !!      {type(exc).__name__}: {exc}\n")
             err += 1
             continue
-        print(f"  ->      {result.proposed_name!r}   [{result.status}] {result.message or ''}\n")
+        conf = f" conf={result.confidence:.2f}" if result.confidence is not None else ""
+        print(f"  ->      {result.proposed_name!r}   [{result.status}{conf}] {result.message or ''}\n")
         if result.status == "matched" and result.proposed_name:
             ok += 1
+        elif result.status == "review":
+            # A name was proposed but the scoring would not auto-select it.
+            review += 1
         else:
             err += 1
 
     print("-" * 78)
-    print(f"{ok} proposed, {err} without a usable name")
+    print(f"{ok} auto-selected, {review} needing review, {err} without a usable name")
     return 0
 
 

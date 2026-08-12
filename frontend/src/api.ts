@@ -11,7 +11,10 @@ export interface MediaItem {
     proposed_name?: string;
     tmdb_id?: number;
     tvdb_id?: number;
-    status: 'pending' | 'matched' | 'renaming' | 'error' | 'success';
+    // 'review' is a match the backend scored but does not trust. The name is
+    // proposed and editable, but the row is deliberately not auto-selected.
+    status: 'pending' | 'matched' | 'review' | 'renaming' | 'error' | 'success';
+    confidence?: number;
     message?: string;
 }
 

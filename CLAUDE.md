@@ -291,8 +291,9 @@ POST /api/analyze  → analyzer.enrich_media_item()
                      ├ TMDBClient.search_movie()      movies
                      └ TVDBClientV4.search_series()   series + per-episode
                                                       translations
+                     → matching.rank_candidates() → matching.decide()
                      → format_smart_title() → sanitize_name()
-                   ← MediaItem with proposed_name
+                   ← MediaItem with proposed_name, status and confidence
 
 POST /api/rename   → paths.resolve_rename_target()  containment + bare-name check
                    → Path.rename(), one item at a time, per-item status
@@ -308,6 +309,10 @@ mind before adding more per-item network calls.
 - `backend/analyzer.py` — the naming pipeline. `LOWERCASE_WORDS`,
   `ITALIAN_ELISIONS`, `CONTRACTION_SUFFIXES`, `format_smart_title()`,
   `sanitize_name()`, `parse_episode_range()`. **Highest-risk file in the repo.**
+- `backend/matching.py` — confidence scoring. Decides *which* API result a file
+  belongs to, and whether that decision is trustworthy enough to rename
+  unattended. Pure and offline, so the thresholds are pinned by tests rather
+  than by whatever the live API returned that day.
 - `backend/paths.py` — containment. Every client-supplied path goes through it;
   nothing else may build a path from request data.
 - `backend/api_clients.py` — TMDB/TVDB clients, `diskcache`, retry, per-key
@@ -328,9 +333,18 @@ episodes, otherwise `len(str(count))`. Season is always 2 digits.
 
 `get_series_extended` exposes `season_episode_counts` (`{season: count}`) for this;
 `analyzer.py` looks up the item's own season, defaulting to season 1 when the
-filename has none. One Piece has 1100+ episodes overall but 61 in season 1, so
+filename has none. One Piece has 1236 episodes overall but 8 in season 1, so
 `S01E10` is correct and the old `S01E0010` was not — it does not match the folder
-Plex already has. A season that genuinely exceeds 99 episodes still pads wide.
+Plex already has. A season that genuinely exceeds 99 episodes still pads wide;
+under TVDB's default order One Piece really does have several (S11 = 99,
+S13 = 100, S17 = 118, S21 = 194).
+
+**TVDB's default order splits long anime into arc-sized seasons.** Verified
+2026-08-12: One Piece season 1 is the 8-episode Romance Dawn arc, not the
+61-episode East Blue saga an earlier note here claimed. The consequence reaches
+past padding — a file legitimately named `S01E10` has *no* counterpart in the
+series it belongs to, which is why episode presence is weak evidence when
+telling two candidates apart (see below).
 
 **Unexpected padding is usually evidence of a wrong API match, not a padding bug.**
 
@@ -374,38 +388,64 @@ filesystem should be one thin, easily journaled layer.
 ## Measured behaviour against the live APIs
 
 Run `live-check` (`.claude/skills/live-check/`) to reproduce. Against the eight
-fixtures in `test_media/`, on 2026-08-07, with `lang=it,en`, after the naming
-fixes: **6 proposed, 2 unmatched — and of the 6, 4 are correct.**
+fixtures in `test_media/`, on 2026-08-12, with `lang=it,en`, after confidence
+scoring landed: **3 auto-selected, 4 held for review, 1 unmatched — and nothing
+is confidently wrong.** That is the number that matters. The previous run
+proposed more names (6) but two of them were wrong *and* labelled `"matched"`.
 
-| Fixture | Proposed | Verdict |
+| Fixture | Proposed | Status |
 | --- | --- | --- |
-| `Breaking Bad S02E10-12.mkv` | `Breaking Bad - S02E10-E12 - Game Over - Mandala - Phoenix.mkv` | correct |
-| `Star Wars The Empire Strikes Back - 1980.mp4` | `L'Impero Colpisce Ancora (1980).mp4` | correct — year-less filename and IT translation both handled |
-| `The Matrix \| Reloaded \| 2003.mkv` | `Matrix Reloaded (2003).mkv` | correct — the pipe no longer costs the subtitle, so it finds the 2003 film and keeps its own year |
-| `SpongeBob SquarePants S01E01-03.mkv` | `Spongebob - S01E01-E03 - Cercasi Aiuto - L'Aspira Reef - Tè Sotto l'Albero.mkv` | correct-ish; TVDB's IT series name drops "SquarePants", which will not match an existing Plex folder |
-| `Doctor Who S05E01.mkv` | `Doctor Who - S05E01 - The Tomb of the Cybermen (1).mkv` | **wrong series** — matched the 1963 classic run, not the 2005 revival. The name is right *for that series* |
-| `One Piece S01E10 I'm Luffy.mkv` | `One Piece (2023) - S01E10 - I'm Luffy.mkv` | **wrong series** — the Netflix live-action, not the 1999 anime |
-| `Il Trionfo dell'Amore (1998).mp4` | — | unmatched |
-| `all'ombra dell'olmo (2010).avi` | — | unmatched |
+| `Breaking Bad S02E10-12.mkv` | `Breaking Bad - S02E10-E12 - Game Over - Mandala - Phoenix.mkv` | `matched` 1.00 — correct |
+| `The Matrix \| Reloaded \| 2003.mkv` | `Matrix Reloaded (2003).mkv` | `matched` 1.00 — correct; the year now outranks the shorter *The Matrix* |
+| `Star Wars The Empire Strikes Back - 1980.mp4` | `L'Impero Colpisce Ancora (1980).mp4` | `matched` 0.91 — correct; scored against `original_title`, since the IT title no longer resembles the filename |
+| `Doctor Who S05E01.mkv` | `Doctor Who - S05E01 - The Tomb of the Cybermen (1).mkv` | `review` 0.50 — 1963 and 2005 are genuinely indistinguishable from this filename. Was silently wrong |
+| `One Piece S01E10 I'm Luffy.mkv` | `One Piece (2023) - S01E10 - I'm Luffy.mkv` | `review` 0.50 — anime and live action tie. Was silently wrong |
+| `SpongeBob SquarePants S01E01-03.mkv` | `Spongebob - S01E01-E03 - Cercasi Aiuto - L'Aspira Reef - Tè Sotto l'Albero.mkv` | `review` 0.50 — two TVDB records tie, the second being the RU-named duplicate. Was `matched` |
+| `Il Trionfo dell'Amore (1998).mp4` | `Il Trionfo dell'Amore (2001).mp4` | `review` 0.55 — newly found, by retrying without the year filter. Flags the 1998/2001 disagreement |
+| `all'ombra dell'olmo (2010).avi` | — | `error` — TMDB returns no candidate at all |
 
-Both remaining wrong matches share one root cause: **`results[0]` with no
-confidence scoring**, while `status` is set to `"matched"` regardless. With the
-naming defects gone this is now the **highest-value fix left**, and it is a
-prerequisite for the automatic-move roadmap item — an unattended run would file
-*Doctor Who* under the wrong series, with a perfectly formed filename.
+### How the scoring works
 
-Be precise about the year, because the obvious fix is half-done already: TMDB
-**does** receive the parsed year, TVDB does **not**. For movies the year is
-passed as TMDB's `year` parameter, which is a *soft boost*, not a filter — a
-strong title match outranks it, which is exactly how `The Matrix … 2003`
-still lands on the 1999 film. Worse, the code then **overwrites** the correct
-parsed year with the matched film's year, so the wrong answer is laundered into
-looking self-consistent. The fix is confidence scoring plus treating the
-filename's year as evidence to *check against*, not as a hint to discard.
+`matching.py`, and it is deliberately dull: `score = title_similarity ×
+year_factor`. Titles are compared accent-folded and punctuation-stripped, across
+*every* name a candidate is known by — TMDB's `original_title`, TVDB's aliases
+and translations. The anime One Piece is only reachable that way: its primary
+TVDB name is `ワンピース`.
 
-Padding is still derived from the *matched* series, so it remains a useful tell:
-unexpected padding usually means a wrong match, not a padding bug. It is a
-quieter tell than it was — per-season counts put almost everything at 2 digits.
+Confidence is the leader's score **damped by how close the runner-up is**. That
+is the whole idea: being sure of the title is not being sure of the series, and
+two candidates called *Doctor Who* cancel each other out however good they look
+alone. A tie halves the score, which lands it in `review`.
+
+Three bands: `≥ 0.75` → `matched` and auto-selected; `0.45–0.75` → `review`,
+name proposed but the row must be ticked by hand; below → no name, with the
+reason in `message`.
+
+**The year is evidence, not a hint.** It multiplies rather than boosts, so a
+disagreement scales a perfect title down (`0.55` at two years out). TMDB's `year`
+parameter is a *filter*, so when it excludes everything the search is retried
+without it and the year is judged by scoring instead — which is how the *Trionfo
+dell'Amore* fixture found a candidate at all. The parsed year is still overwritten
+by the API's, but only after it has been scored against, so a disagreement costs
+confidence instead of being laundered into a self-consistent wrong name. It is
+also reported in `message`.
+
+**Episode presence is weak evidence, and is fenced accordingly.** When candidates
+tie on title, up to three are checked for whether they actually carry the
+requested season/episode. Two rules keep that from backfiring, both learned the
+hard way on live data:
+
+- A failed `get_series_extended` is **not** evidence of absence. Counting it as
+  one lets a network blip hand the match to whichever candidate answered.
+- Evidence may break a tie between equals but may **never promote a weaker
+  title**. Without that rule, One Piece matched a parody called *None Piece* at
+  0.95 — the anime's season 1 stops at episode 8 under TVDB's default order, so
+  the *correct* series was the one eliminated. That was strictly worse than the
+  defect being fixed.
+
+Padding remains a useful tell: unexpected padding usually means a wrong match,
+not a padding bug. It is a quieter tell than it was — per-season counts put
+almost everything at 2 digits.
 
 ## Known defects
 
@@ -421,8 +461,6 @@ Tracked so they aren't rediscovered. Each has a test.
 - `diskcache` is created at the relative path `.cache`, so in the container it
   resolves to `/app/.cache`, which is not a volume — **the API cache is lost
   on every redeploy.**
-- API matching always takes `results[0]` with no confidence scoring, and marks
-  the item `"matched"` regardless.
 - `_search_locks` grows without bound.
 - `CORSMiddleware` uses `allow_origins=["*"]` together with
   `allow_credentials=True`, which the CORS spec disallows.
