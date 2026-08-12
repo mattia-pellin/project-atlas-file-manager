@@ -8,7 +8,7 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from . import matching
-from .models import CandidateOut
+from .models import CandidateOut, KeyStatus
 
 
 def is_retryable_error(exception: Exception) -> bool:
@@ -215,6 +215,27 @@ class TMDBClient:
             response.raise_for_status()
             return response.json()
 
+    async def verify_key(self) -> KeyStatus:
+        """Ask TMDB whether this key works, using the endpoint whose only job is to say so.
+
+        Not `self._request`: that retries five times with exponential backoff, which
+        would turn "the key is wrong" — known from the first 401 — into a thirty-second
+        wait. Not cached either; a status that can be stale is not a status.
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/authentication", params={"api_key": self.api_key}, timeout=8.0
+                )
+        except httpx.HTTPError as error:
+            return KeyStatus(state="unreachable", detail=f"TMDB could not be reached ({type(error).__name__})")
+
+        if response.status_code in (401, 403):
+            return KeyStatus(state="invalid", detail="TMDB rejected this key")
+        if not response.is_success:
+            return KeyStatus(state="unreachable", detail=f"TMDB answered {response.status_code}")
+        return KeyStatus(state="ok", detail="TMDB accepted this key")
+
     async def _search_movie_results(
         self, title: str, year: int | None, language_prefs: list[str], bypass_cache: bool
     ) -> list[dict[str, Any]]:
@@ -308,6 +329,37 @@ class TVDBClientV4:
             except Exception as e:
                 print(f"TVDB Auth failed: {e}")
                 return ""
+
+    async def verify_key(self) -> KeyStatus:
+        """A fresh `POST /login`, which *is* TVDB's authentication.
+
+        Not `get_token()`, for two reasons. It serves a token cached for 24 hours, so a
+        key revoked yesterday would still report as working — and a status that can be
+        stale is not a status. And it swallows the exception and returns `""`, which
+        loses the difference between a rejected key and a host that never answered.
+        """
+        payload = {"apikey": self.api_key}
+        if self.pin:
+            payload["pin"] = self.pin
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(f"{self.BASE_URL}/login", json=payload, timeout=8.0)
+        except httpx.HTTPError as error:
+            return KeyStatus(state="unreachable", detail=f"TVDB could not be reached ({type(error).__name__})")
+
+        if response.status_code in (401, 403):
+            return KeyStatus(state="invalid", detail="TVDB rejected this key or its PIN")
+        if not response.is_success:
+            return KeyStatus(state="unreachable", detail=f"TVDB answered {response.status_code}")
+
+        try:
+            token = (response.json().get("data") or {}).get("token")
+        except ValueError:
+            return KeyStatus(state="unreachable", detail="TVDB answered with something that is not JSON")
+        if not token:
+            return KeyStatus(state="invalid", detail="TVDB answered without a token")
+        return KeyStatus(state="ok", detail="TVDB accepted this key")
 
     @retry(
         stop=stop_after_attempt(5),

@@ -308,6 +308,8 @@ POST /api/rename   → paths.resolve_rename_target()  containment + bare-name ch
                    → Path.rename(), one item at a time, per-item status
 
 GET  /api/config   ← roots, languages, cache stats, thresholds, key presence
+GET  /api/keys     → TMDBClient.verify_key() ‖ TVDBClientV4.verify_key()
+                   ← {tmdb, tvdb}: ok | invalid | missing | unreachable + detail
 DEL  /api/cache    → drops every cached API payload (raw responses only)
 ```
 
@@ -385,6 +387,11 @@ subsequent episodes make no request at all.
 - `frontend/src/lib/columns.ts` — the column model the reducer and the renderer
   share. They must agree on order and editability: a reducer that thinks column
   3 is the year while the header says season is silent data corruption.
+- `frontend/src/lib/languages.ts` — ISO 639-1 validation for the language chain.
+  The only place a bad code can be caught: both providers answer one by falling
+  back rather than by erroring.
+- `frontend/src/lib/bands.ts` — the two confidence thresholds and the rule that
+  they cannot cross. Pure, so the pair the backend rejects is pinned by a test.
 - `frontend/src/lib/series.ts` — groups episodes by normalised title, mirroring
   `matching.normalize_title`, so one triage answer settles a whole season.
   Grouped on the title and never on the matched id, because the rows needing the
@@ -448,11 +455,21 @@ overlay that `Esc` returns from.
 
 **The keyboard model is spreadsheet, not modal.** Bare printable keys always type
 into the focused cell, so every command is a modifier chord (`Ctrl+K` palette,
-`Ctrl+Enter` rename, `Ctrl+D` fill-down, `Ctrl+T` triage, `Ctrl+,` settings,
-`Ctrl+/` keymap). The one place bare letters and digits are free is **triage**,
-where nothing is being typed: `1`–`9` pick a candidate, `A` toggles apply-to-series,
-`S` skips. Chords are matched and rendered from the same string
-(`lib/keymap.ts`, `lib/shortcuts.ts`), so the help cannot drift from the behaviour.
+`Ctrl+Enter` rename, `Ctrl+R` scan, `Ctrl+D` fill-down, `Ctrl+G` triage,
+`Ctrl+Shift+G` triage this row, `Ctrl+,` settings, `Ctrl+/` keymap). The one place
+bare letters and digits are free is **triage**, where nothing is being typed:
+`1`–`9` pick a candidate, `A` toggles apply-to-series, `S` skips. Chords are matched
+and rendered from the same string (`lib/keymap.ts`, `lib/shortcuts.ts`), so the help
+cannot drift from the behaviour.
+
+**A chord the browser keeps is not a chord.** Triage was on `Ctrl+T`, which Chrome
+and Firefox answer with a new tab *without delivering the event*, so
+`preventDefault()` never runs and there is nothing the page can do about it. It is on
+`Ctrl+G` now — nominally "find again", preventable, and meaningless with no find bar
+open. `lib/shortcuts.test.ts` fails if any of the reserved chords comes back. The
+opposite failure is just as real and has no feature test either: scan was also bound
+to `Ctrl+Shift+S`, which never arrives at all on this user's keyboard layout, so the
+"safe" alternative was the one that did not work. Scan is `Ctrl+R` alone.
 
 **Status is a dot, never a word** (`StatusDot.tsx`), and the dots differ by *fill*
 as well as hue — solid, hollow, dashed, crossed, ticked — so the state survives a
@@ -463,7 +480,17 @@ the row and removes the need for a checkbox column.
 **Triage is where a season gets settled in one keystroke.** The pick travels back
 as `forced_key`, not as a finished name, so the backend still builds the title,
 padding and episode titles: one decision across twenty-four files cannot produce
-twenty-four subtly different conventions. Movies are deliberately not grouped.
+twenty-four subtly different conventions. Movies are deliberately not grouped. It is
+a window over the grid, not a screen — the rows behind it are the context for the
+decision, and a full-bleed takeover hid them.
+
+**`Ctrl+Shift+G` triages the focused row whatever the scoring made of it.** The
+queue only holds what the scoring *admitted* it could not settle, and the match most
+in need of correcting is often the one it was sure of: `One Piece - 1015.mkv` is
+`matched` at 1.00 and wrong. So the row-local entry ignores status and asks only
+whether there is anything to choose between (`candidates`, which is populated on
+every analyzed row). `openTriage` falls back to it when the row under the cursor is
+not in the queue, so `Enter` on a settled status dot does the useful thing.
 
 **There is one bulk action, and it is the rescan.** No "match everything again"
 button exists, and none should be added. A match can now be changed by hand —
@@ -480,9 +507,38 @@ scoring that had already got it wrong. What remains is deliberate and narrow:
   re-matches every row it filled. Editing `proposed_name` does not — writing the
   name by hand is a decision, not staleness.
 
+**The settings panel refuses what it cannot detect later.** Four sections, and each
+one is a way to be wrong that produces no error anywhere downstream:
+
+- **Languages** are tokens, not a comma-separated string, and each is checked against
+  ISO 639-1 as it is typed (`lib/languages.ts`). A bad code is silent otherwise —
+  TMDB answers an unknown `language` with untranslated results and TVDB 404s the
+  translation and falls through — so `en,itt` just quietly stops being Italian.
+  Clicking a chip promotes it to the front, which is the only ordering that matters
+  in a fallback chain. Apply is disabled while a code is bad or the list is empty.
+- **Confidence** is one track with two thumbs that cannot cross (`lib/bands.ts`,
+  `ThresholdSlider.tsx`). `review > match` is a `400` from `/api/analyze` on every
+  row, which reads as "the app is broken"; making it unreachable beats validating it.
+  The three bands are painted in the colours of the row states they produce.
+- **API keys** are one icon each, checked live against `GET /api/keys` on open and on
+  demand. `/api/config` only ever said whether a key was *set*, and a set-but-revoked
+  key presents as "Could not find a match" on every row — indistinguishable from a
+  genuine no-match. Four states, because `unreachable` must never be read as
+  "rotate your key"; DNS on this network has failed exactly that way.
+- **Cache** is a readout and a button.
+
+There is no **Behaviour** section any more. "Tick confident matches" duplicated what
+the match threshold already means, and two controls over one behaviour let the
+threshold describe something the app was not doing. "Ignore the cache" was a
+permanent switch for a one-off need — emptying the cache is the same thing, done
+once, instead of making every future scan pay for one stale answer. `bypass_cache`
+survives as a backend parameter; the frontend no longer sends it.
+
 Design tokens are in `src/styles/tokens.css` and are the only place a raw colour
 is written. The shape language is squared — 3px corners, no pills — and amber is
-the single accent, so amber always means "the thing you are acting on".
+the single accent, so amber always means "the thing you are acting on". The one
+exception to "amber is the only accent" is the confidence track, where the three
+bands *are* the information.
 
 ## Roadmap
 

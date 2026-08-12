@@ -35,7 +35,12 @@ body {
 }
 
 kbd {
-    display: inline-block;
+    /* inline-flex, not inline-block: the parts of a chord are separate nodes so the
+       return key can be an SVG, and centring them is what keeps that glyph on the same
+       optical line as the letters beside it. */
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
     padding: 1px 5px;
     border: 1px solid var(--hairline);
     border-bottom-width: 2px;
@@ -45,6 +50,23 @@ kbd {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     line-height: 1.5;
+    white-space: nowrap;
+}
+
+.kbd-sep {
+    opacity: 0.55;
+}
+
+/* Sized in em and stroked in currentColor, so it tracks the cap height of whatever
+   text it sits in — the whole reason the return key is drawn rather than typed. */
+.kbd-glyph {
+    width: 0.78em;
+    height: 0.78em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .app {
@@ -72,13 +94,19 @@ kbd {
     gap: 5px;
     flex: 0 0 auto;
     font-size: var(--text-md);
-    font-weight: 600;
+    font-weight: 400;
     letter-spacing: 0.02em;
     color: var(--bone);
     white-space: nowrap;
 }
 
-.brand-prefix {
+/* "Project: Atlas" is the name and carries the weight; "Files" says which of them
+   this is, and reads as a subtitle. */
+.brand-name {
+    font-weight: 600;
+}
+
+.brand-suffix {
     color: var(--muted-steel);
     font-weight: 400;
 }
@@ -487,6 +515,41 @@ kbd {
     color: var(--dim-steel);
 }
 
+/* Both answers, always visible. Squared and hairline-thin so a column of them still
+   reads as a grid rather than as a row of buttons. */
+.choice {
+    display: inline-flex;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.choice-option {
+    padding: 2px 8px;
+    border: 0;
+    background: transparent;
+    color: var(--dim-steel);
+    font-family: inherit;
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    text-transform: capitalize;
+    cursor: pointer;
+}
+
+.choice-option + .choice-option {
+    border-left: 1px solid var(--hairline);
+}
+
+.choice-option:hover {
+    color: var(--bone);
+    background: var(--raised-slate);
+}
+
+.choice-option.is-on {
+    background: var(--signal-amber);
+    color: var(--console-black);
+}
+
 .cell-editor {
     width: 100%;
     height: calc(var(--row-height) - 6px);
@@ -595,12 +658,30 @@ kbd {
 /* ------------------------------------------------------------------ settings */
 
 .field-group h3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
     margin: 0 0 var(--space-3);
     font-size: var(--text-xs);
     font-weight: 500;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--dim-steel);
+}
+
+/* A section-level action — "Re-check", not a decision. It sits on the label line, so it
+   has to be shorter than a real button and must not take the eye off the section. */
+.button.tiny {
+    height: 22px;
+    padding: 0 var(--space-2);
+    font-size: var(--text-xs);
+    letter-spacing: 0.04em;
+    color: var(--muted-steel);
+}
+
+.button.tiny:hover:not(:disabled) {
+    color: var(--bone);
 }
 
 .field {
@@ -645,11 +726,6 @@ input[type='checkbox'] {
     accent-color: var(--signal-amber);
 }
 
-input[type='range'] {
-    accent-color: var(--signal-amber);
-    width: 100%;
-}
-
 .readout {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -665,6 +741,272 @@ input[type='range'] {
 .readout dd {
     margin: 2px 0 0;
     font-size: var(--text-sm);
+}
+
+/* ------------------------------------------------------------------ languages */
+
+/* One field made of tokens. It looks like `.input` because it *is* the input — the
+   whole box focuses the caret, so clicking anywhere in it types the next code. */
+.lang-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--control-height);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background: var(--console-black);
+    cursor: text;
+}
+
+.lang-chips:focus-within {
+    border-color: var(--signal-amber);
+}
+
+.lang-chip {
+    display: inline-flex;
+    align-items: stretch;
+    height: 22px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background: var(--raised-slate);
+    font-size: var(--text-xs);
+}
+
+/* The preferred language is the one that actually decides the title, so it carries the
+   accent — amber means "the thing you are acting on" everywhere else too. */
+.lang-chip.is-first {
+    border-color: var(--signal-amber);
+    color: var(--signal-amber);
+}
+
+.lang-chip.is-bad {
+    border-color: var(--fault-rust);
+    color: var(--fault-rust);
+    background: rgba(196, 84, 75, 0.1);
+}
+
+.lang-chip-body,
+.lang-chip-x {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+}
+
+.lang-chip-body {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 var(--space-2);
+}
+
+.lang-chip-x {
+    padding: 0 6px 1px;
+    border-left: 1px solid var(--hairline);
+    color: var(--dim-steel);
+    line-height: 1;
+}
+
+.lang-chip-x:hover {
+    color: var(--fault-rust);
+}
+
+.lang-chip-body:focus-visible,
+.lang-chip-x:focus-visible {
+    outline: 1px solid var(--signal-amber);
+    outline-offset: -1px;
+}
+
+.lang-glyph {
+    width: 0.9em;
+    height: 0.9em;
+}
+
+.lang-input {
+    flex: 1 1 60px;
+    min-width: 60px;
+    height: 22px;
+    border: 0;
+    background: transparent;
+    color: var(--bone);
+    font-size: var(--text-sm);
+}
+
+.lang-input:focus {
+    outline: none;
+}
+
+/* ----------------------------------------------------------------- thresholds */
+
+/* One axis cut into three, rather than two numbers that happen to be related. The
+   bands are painted in the colours of the row states they produce. */
+.bands {
+    display: grid;
+    gap: 6px;
+    padding-top: var(--space-4);
+}
+
+.bands-labels {
+    position: relative;
+    height: var(--text-sm);
+}
+
+.bands-label {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: var(--text-xs);
+    color: var(--muted-steel);
+}
+
+.bands-label strong {
+    color: var(--bone);
+    font-weight: 500;
+}
+
+.bands-track {
+    position: relative;
+    height: 20px;
+}
+
+.bands-fill {
+    position: absolute;
+    inset: 7px 0;
+    border-radius: var(--radius);
+}
+
+/* The two ranges are stacked transparently over the painted track: each keeps its
+   native keyboard handling, and only the thumbs take the pointer, so whichever one is
+   nearer to the click is the one that moves. */
+.bands-range {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    margin: 0;
+    background: transparent;
+    pointer-events: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.bands-range:focus {
+    outline: none;
+}
+
+.bands-range::-webkit-slider-runnable-track {
+    height: 20px;
+    background: transparent;
+}
+
+.bands-range::-moz-range-track {
+    height: 20px;
+    background: transparent;
+}
+
+.bands-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: 3px;
+    border: 2px solid var(--console-black);
+    border-radius: 50%;
+    background: var(--bone);
+    pointer-events: auto;
+    cursor: ew-resize;
+}
+
+.bands-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--console-black);
+    border-radius: 50%;
+    background: var(--bone);
+    pointer-events: auto;
+    cursor: ew-resize;
+}
+
+.bands-range:focus-visible::-webkit-slider-thumb {
+    background: var(--signal-amber);
+}
+
+.bands-range:focus-visible::-moz-range-thumb {
+    background: var(--signal-amber);
+}
+
+.bands-legend {
+    display: flex;
+    font-size: var(--text-xs);
+    color: var(--dim-steel);
+}
+
+/* Each caption is as wide as its band and clipped rather than wrapped: a caption that
+   reflowed would move the band boundaries it is describing. */
+.bands-legend span {
+    padding-right: var(--space-2);
+    border-left: 1px solid var(--hairline);
+    padding-left: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ----------------------------------------------------------------- keys, cache */
+
+.settings-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-5);
+}
+
+.key-list {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.key-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background: var(--raised-slate);
+    font-size: var(--text-sm);
+}
+
+.key-icon {
+    display: inline-flex;
+}
+
+.key-icon.is-ok {
+    color: var(--verify-teal);
+}
+
+.key-icon.is-bad {
+    color: var(--fault-rust);
+}
+
+.key-icon.is-unknown {
+    color: var(--caution-ochre);
+}
+
+.key-icon.is-missing {
+    color: var(--dim-steel);
+}
+
+.cache-line {
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--muted-steel);
 }
 
 /* -------------------------------------------------------------------- keymap */
@@ -772,15 +1114,11 @@ input[type='range'] {
 
 /* -------------------------------------------------------------------- triage */
 
+/* A window over the grid, not a screen. Wider than the other panels because three
+   things have to fit on one candidate line — poster, title and score — and narrower
+   than the viewport so the rows behind it stay in view. */
 .triage {
-    position: fixed;
-    /* Stops above the status bar rather than covering it: triage is the mode whose
-       contextual keys the footer is most needed for. */
-    inset: var(--header-height) 0 var(--status-height) 0;
-    z-index: 15;
-    display: flex;
-    flex-direction: column;
-    background: var(--console-black);
+    width: min(920px, 100%);
 }
 
 .triage-head {
@@ -794,12 +1132,15 @@ input[type='range'] {
 
 .triage-progress {
     color: var(--dim-steel);
-    font-size: var(--text-sm);
+    font-size: var(--text-xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
 }
 
 .triage-file {
     display: flex;
     flex-direction: column;
+    gap: 2px;
     min-width: 0;
 }
 
@@ -809,6 +1150,30 @@ input[type='range'] {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.triage-facts {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--hairline);
+}
+
+.chip {
+    padding: 1px 7px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    font-size: var(--text-xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-steel);
+}
+
+.chip.is-warn {
+    border-color: var(--caution-ochre);
+    color: var(--caution-ochre);
 }
 
 .triage-message {
@@ -822,6 +1187,9 @@ input[type='range'] {
 
 .candidates {
     flex: 1 1 auto;
+    /* Enough for four candidates without scrolling, which is where the eye stops
+       comparing anyway; the rest scroll and are reachable by digit. */
+    min-height: 0;
     margin: 0;
     padding: var(--space-4);
     list-style: none;
@@ -969,8 +1337,10 @@ input[type='range'] {
 
 .triage-empty {
     margin: auto;
+    padding: var(--space-6);
     text-align: center;
     display: grid;
+    justify-items: center;
     gap: var(--space-3);
     color: var(--muted-steel);
 }

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import uuid
 
@@ -7,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import matching
 from .analyzer import enrich_media_item
-from .api_clients import MAX_EXPOSED_CANDIDATES, cache
-from .models import ConfigOut, MediaItem, RenameRequest, ScanRequest, ThresholdsOut
+from .api_clients import MAX_EXPOSED_CANDIDATES, TMDBClient, TVDBClientV4, cache
+from .models import ConfigOut, KeyCheckOut, KeyStatus, MediaItem, RenameRequest, ScanRequest, ThresholdsOut
 from .parser import parse_filename
 from .paths import (
     DEFAULT_MEDIA_ROOT,
@@ -182,6 +183,32 @@ async def get_config():
         tmdb_configured=bool(os.getenv("TMDB_API_KEY")),
         tvdb_configured=bool(os.getenv("TVDB_API_KEY")),
     )
+
+
+async def _missing_key(variable: str) -> KeyStatus:
+    return KeyStatus(state="missing", detail=f"{variable} is not set")
+
+
+@app.get("/api/keys", response_model=KeyCheckOut)
+async def check_keys():
+    """Whether each key actually works, by using it.
+
+    `/api/config` only reports whether a key is *set*, which is the question that was
+    never really being asked: a key that is present but revoked, or a provider that is
+    unreachable, both produce rows that read "Could not find a match" — the same words
+    a genuine no-match produces. One authenticated call each settles it, and the four
+    states are four different things to do about it.
+
+    The two run concurrently and neither is cached. A cached "ok" for a key that has
+    since been rotated is worse than no check at all.
+    """
+    tmdb_key = os.getenv("TMDB_API_KEY")
+    tvdb_key = os.getenv("TVDB_API_KEY")
+    tmdb, tvdb = await asyncio.gather(
+        TMDBClient(tmdb_key).verify_key() if tmdb_key else _missing_key("TMDB_API_KEY"),
+        TVDBClientV4(tvdb_key, os.getenv("TVDB_PIN")).verify_key() if tvdb_key else _missing_key("TVDB_API_KEY"),
+    )
+    return KeyCheckOut(tmdb=tmdb, tvdb=tvdb)
 
 
 @app.delete("/api/cache")

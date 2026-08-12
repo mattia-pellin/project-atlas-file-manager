@@ -65,6 +65,7 @@ export type GridAction =
     | { type: 'clearSelection' }
     | { type: 'setSelection'; ids: string[] }
     | { type: 'fillDown' }
+    | { type: 'cycleChoice' }
     | { type: 'clearCell' }
     | { type: 'undo' }
     | { type: 'redo' }
@@ -308,6 +309,24 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
             const text = String(source[spec.id as EditableField] ?? '');
             const patches = targets.map((row) => patchFor(row, state.focusColumn, text)).filter((patch): patch is Patch => patch !== null);
             return applyPatches(state, patches, `Filled ${spec.header || spec.id} into ${patches.length} row(s)`);
+        }
+
+        /**
+         * The next value of a cell that has a fixed set of them — today only Type.
+         *
+         * A choice cell is never typed into. It used to open a `<select>` seeded with
+         * whatever character started the edit, which matched no option, so the control
+         * looked inert and could commit a value that was neither movie nor episode.
+         * Two values means one key: Enter, and again to change your mind.
+         */
+        case 'cycleChoice': {
+            const row = focusedRow(state);
+            const spec = column(state.focusColumn);
+            if (!row || !spec?.editable || !spec.choices?.length) return state;
+            const at = spec.choices.indexOf(String(row[spec.id as EditableField] ?? ''));
+            // -1 for "unknown", which is not one of the choices: the first one is next.
+            const patch = patchFor(row, state.focusColumn, spec.choices[(at + 1) % spec.choices.length]);
+            return patch ? applyPatches(state, [patch]) : state;
         }
 
         case 'clearCell': {

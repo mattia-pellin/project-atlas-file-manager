@@ -15,15 +15,28 @@ export interface Shortcut {
 }
 
 /**
- * Scan, twice.
+ * Scan.
  *
- * `Ctrl+R` is the chord everyone reaches for and it is the one the browser reloads
- * on; a page that only calls `preventDefault()` is betting on the browser letting it,
- * and when it loses the user gets a reload instead of a rescan. `Ctrl+Shift+S` is
- * claimed by nobody, so it is the one that is documented first — but `Ctrl+R` stays
- * bound, because a reload here costs nothing and a rescan is what was meant.
+ * `Ctrl+R` and nothing else. It was also bound to `Ctrl+Shift+S`, on the theory that
+ * a chord the browser does not claim is the safer one to document — but that chord
+ * does not arrive at all on the keyboard layout this is used with, so the safer
+ * option was the one that did not work. `Ctrl+R` is preventable everywhere, and the
+ * worst case if a browser ever refuses is a page reload.
  */
-export const SCAN_CHORDS: readonly [Chord, Chord] = ['mod+shift+s', 'mod+r'];
+export const SCAN_CHORD: Chord = 'mod+r';
+
+/**
+ * Triage, for the queue and for one row.
+ *
+ * Not `Ctrl+T`: Chrome and Firefox open a new tab on it and do not deliver the event
+ * to the page at all, so `preventDefault()` never runs and the shortcut cannot be
+ * taken back. `Ctrl+G` is only ever "find again", which is preventable, and there is
+ * no find bar open here for it to mean anything.
+ */
+export const TRIAGE_CHORD: Chord = 'mod+g';
+
+/** Triage the focused row alone, whatever its status — the answer usually needed. */
+export const TRIAGE_ROW_CHORD: Chord = 'mod+shift+g';
 
 export interface ShortcutGroup {
     title: string;
@@ -73,8 +86,9 @@ export const SHORTCUTS: ShortcutGroup[] = [
         shortcuts: [
             { chord: 'mod+k', what: 'Command palette' },
             { chord: 'mod+enter', what: 'Rename the selected rows' },
-            { chord: SCAN_CHORDS[0], also: SCAN_CHORDS[1], what: 'Scan the directory and match it again' },
-            { chord: 'mod+t', what: 'Triage everything the scoring could not settle' },
+            { chord: SCAN_CHORD, what: 'Scan the directory and match it again' },
+            { chord: TRIAGE_CHORD, what: 'Triage everything the scoring could not settle' },
+            { chord: TRIAGE_ROW_CHORD, what: 'Triage this row on its own' },
             { chord: 'mod+,', what: 'Settings' },
             { chord: 'mod+/', what: 'This list' }
         ]

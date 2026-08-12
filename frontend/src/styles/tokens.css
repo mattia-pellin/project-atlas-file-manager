@@ -30,6 +30,12 @@
     --caution-ochre: #c9873f;
     --fault-rust: #c4544b;
 
+    /* The confidence track's top band, and the only green in the product. It is not
+       --verify-teal because that dot sits alone on a row, whereas here the three bands
+       are adjacent: teal beside ochre reads as one gradient rather than as two
+       decisions, and this is the control that decides what gets renamed unattended. */
+    --band-green: #5f9e5c;
+
     --font-body: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
 

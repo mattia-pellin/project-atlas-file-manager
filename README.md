@@ -9,8 +9,8 @@ A modern, containerized Single Page Application built to recursively scan, ident
 - **Dynamic Padding**: Automatically calculates episode padding (e.g., `E001`, `E012`) based on the total number of episodes in the series.
 - **Confidence scoring**: Every candidate a search returns is scored on title and year; a result the scoring cannot trust is held for review instead of being renamed silently.
 - **Keyboard-first grid**: A dark, dense, editable grid you can run entirely from the keyboard — arrows to move, type to edit, `Space` to tick, `Ctrl+D` to fill a column down, `Ctrl+Z` to undo. `Ctrl+/` lists every shortcut.
-- **Triage**: When two shows genuinely look alike, the ambiguous files are queued and answered with a digit — and one answer can be applied to every episode of the series at once.
-- **Everything is tunable**: Scan directory, language preference, confidence thresholds and the API cache are all exposed in the settings panel (`Ctrl+,`).
+- **Triage**: When two shows genuinely look alike, the ambiguous files are queued and answered with a digit — and one answer can be applied to every episode of the series at once. `Ctrl+G` walks the queue; `Ctrl+Shift+G` triages just the row under the cursor, which is how a match the scoring was *confidently* wrong about gets corrected.
+- **Everything is tunable**: Scan directory, language codes (checked as you type — an unknown one is refused rather than silently ignored by the providers), the two confidence thresholds on one three-colour track, and the API cache, all in the settings panel (`Ctrl+,`). The TMDB and TVDB keys are verified live there, by using them.
 - **One bulk action**: a rescan re-reads the directory and matches it. Everything else is per-row and deliberate — pick a candidate in triage, or correct a cell and watch that row re-match on what you typed. Nothing re-matches a file you already decided.
 
 ## Quick Start (Docker Compose)
@@ -92,6 +92,7 @@ All configuration is handled via environment variables passed to the container:
   side of the compose port mapping.
 - `CACHE_TTL_HOURS` (Optional): How long API requests should be cached locally. Default `24`.
 - `LANG_PREFS` (Optional): Comma-separated title languages, most preferred first.
-  Default `it,en`. This is only the value the UI starts with — the language pins,
-  the cache switch and the confidence thresholds are all overridable per request
-  from the settings panel, and `GET /api/config` is what the UI reads them from.
+  Default `it,en`. This is only the value the UI starts with — the language pins and
+  the confidence thresholds are overridable per request from the settings panel, and
+  `GET /api/config` is what the UI reads them from. `GET /api/keys` answers the
+  separate question of whether the two keys actually work, by using them.

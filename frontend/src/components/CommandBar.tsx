@@ -1,6 +1,7 @@
 import React from 'react';
-import { formatChord } from '../lib/keymap';
-import { SCAN_CHORDS } from '../lib/shortcuts';
+import { describeChord, formatChord } from '../lib/keymap';
+import { SCAN_CHORD, TRIAGE_CHORD } from '../lib/shortcuts';
+import { Kbd } from './Kbd';
 
 /**
  * One line at the top of the screen, and nothing else.
@@ -46,7 +47,8 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     <header className="bar">
         <span className="brand">
             <span className="brand-dot" aria-hidden="true" />
-            <span className="brand-prefix">Project:</span> Atlas <span className="brand-dash">-</span> Files
+            <span className="brand-name">Project: Atlas</span> <span className="brand-dash">-</span>{' '}
+            <span className="brand-suffix">Files</span>
         </span>
 
         <form
@@ -67,9 +69,10 @@ export const CommandBar: React.FC<CommandBarProps> = ({
                 type="submit"
                 className="button"
                 disabled={busy !== null}
-                title={`Scan and match (${formatChord(SCAN_CHORDS[0])})`}
+                title={`Scan and match (${describeChord(SCAN_CHORD)})`}
             >
-                Scan<kbd>{formatChord(SCAN_CHORDS[0])}</kbd>
+                Scan
+                <Kbd chord={SCAN_CHORD} />
             </button>
         </form>
 
@@ -83,34 +86,36 @@ export const CommandBar: React.FC<CommandBarProps> = ({
                 className="button ghost"
                 onClick={onTriage}
                 disabled={busy !== null || counts.review + counts.error === 0}
-                title={`Triage (${formatChord('mod+t')})`}
+                title={`Triage (${describeChord(TRIAGE_CHORD)})`}
             >
                 Triage
                 {counts.review + counts.error > 0 && <span className="pip mono">{counts.review + counts.error}</span>}
-                <kbd>{formatChord('mod+t')}</kbd>
+                <Kbd chord={TRIAGE_CHORD} />
             </button>
             <button
                 type="button"
                 className="button primary"
                 onClick={onRename}
                 disabled={busy !== null || counts.selected === 0}
-                title={`Rename the selected rows (${formatChord('mod+enter')})`}
+                title={`Rename the selected rows (${describeChord('mod+enter')})`}
             >
                 Rename<span className="mono"> {counts.selected}</span>
-                <kbd>{formatChord('mod+enter')}</kbd>
+                <Kbd chord="mod+enter" />
             </button>
             <button type="button" className="icon-button" onClick={onSettings} aria-label="Settings" title={formatChord('mod+,')}>
-                {/* A cogwheel: eight square teeth on a ring. The spoked circle that was
-                    here read as a sun, which is not what a settings control looks like. */}
-                <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
+                {/* A cogwheel: eight teeth, every coordinate on a circle about (12,12) —
+                    tips at r=10.5, roots at r=7.3, 45° apart. The path this replaces was
+                    drawn by hand and its teeth were neither the same size nor evenly
+                    spaced, which is what made the icon look bent. */}
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                     <path
-                        d="M12 2.4l1.5.28.55 2.05a7.6 7.6 0 011.9 1.1l2-.68 1.05 1.3-1.2 1.72c.24.65.4 1.33.46 2.05l1.9.98v1.6l-1.9.98a7.6 7.6 0 01-.46 2.05l1.2 1.72-1.05 1.3-2-.68a7.6 7.6 0 01-1.9 1.1l-.55 2.05-1.5.28-1.5-.28-.55-2.05a7.6 7.6 0 01-1.9-1.1l-2 .68-1.05-1.3 1.2-1.72a7.6 7.6 0 01-.46-2.05l-1.9-.98v-1.6l1.9-.98c.06-.72.22-1.4.46-2.05L4.5 5.15 5.55 3.85l2 .68a7.6 7.6 0 011.9-1.1l.55-2.05z"
+                        d="M10.11 4.95L10.00 1.69L14.00 1.69L13.89 4.95A7.3 7.3 0 0 1 15.65 5.68L17.87 3.30L20.70 6.13L18.32 8.35A7.3 7.3 0 0 1 19.05 10.11L22.31 10.00L22.31 14.00L19.05 13.89A7.3 7.3 0 0 1 18.32 15.65L20.70 17.87L17.87 20.70L15.65 18.32A7.3 7.3 0 0 1 13.89 19.05L14.00 22.31L10.00 22.31L10.11 19.05A7.3 7.3 0 0 1 8.35 18.32L6.13 20.70L3.30 17.87L5.68 15.65A7.3 7.3 0 0 1 4.95 13.89L1.69 14.00L1.69 10.00L4.95 10.11A7.3 7.3 0 0 1 5.68 8.35L3.30 6.13L6.13 3.30L8.35 5.68A7.3 7.3 0 0 1 10.11 4.95Z"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="1.5"
                         strokeLinejoin="round"
                     />
-                    <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                    <circle cx="12" cy="12" r="3.4" fill="none" stroke="currentColor" strokeWidth="1.5" />
                 </svg>
             </button>
             <button type="button" className="icon-button" onClick={onKeymap} aria-label="Keyboard shortcuts" title={formatChord('mod+/')}>

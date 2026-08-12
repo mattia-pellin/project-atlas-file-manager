@@ -59,9 +59,25 @@ export interface AppConfig {
     tvdb_configured: boolean;
 }
 
+/**
+ * The result of *using* a key, which is a different question from `tmdb_configured`.
+ *
+ * Four states because three of them used to arrive as the same "Could not find a match":
+ * a key that is missing, one the provider rejected and a provider that never answered
+ * call for three different things to do.
+ */
+export interface KeyStatus {
+    state: 'ok' | 'invalid' | 'missing' | 'unreachable';
+    detail: string;
+}
+
+export interface KeyCheck {
+    tmdb: KeyStatus;
+    tvdb: KeyStatus;
+}
+
 /** The overrides the user may apply to a single analysis. */
 export interface AnalyzeOptions {
-    bypassCache: boolean;
     languages: string;
     /** A candidate picked by hand in triage. Settles the match instead of the scoring. */
     forcedKey?: string;
@@ -84,23 +100,26 @@ const parse = async <T>(response: Response, what: string): Promise<T> => {
 export const getConfig = async (): Promise<AppConfig> =>
     parse(await fetch('/api/config'), 'Could not read the configuration');
 
+/** Deliberately uncached and never called on a schedule: it spends one request per provider. */
+export const checkKeys = async (): Promise<KeyCheck> => parse(await fetch('/api/keys'), 'Could not check the keys');
+
 export const clearCache = async (): Promise<{ cleared: number }> =>
     parse(await fetch('/api/cache', { method: 'DELETE' }), 'Could not clear the cache');
 
-export const scanDirectory = async (directory: string, bypassCache: boolean, languages: string): Promise<MediaItem[]> => {
+export const scanDirectory = async (directory: string, languages: string): Promise<MediaItem[]> => {
     const response = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ directory, bypass_cache: bypassCache, language_preference: languages.split(',') })
+        body: JSON.stringify({ directory, language_preference: languages.split(',') })
     });
     return parse(response, 'Scan failed');
 };
 
 export const analyzeItem = async (item: MediaItem, options: AnalyzeOptions): Promise<MediaItem> => {
-    const params = new URLSearchParams({
-        bypass_cache: String(options.bypassCache),
-        lang_prefs: options.languages
-    });
+    // The cache is never bypassed per request. It holds raw provider payloads and
+    // nothing derived, so "ask again" is emptying it once — a switch would have made
+    // every future scan pay for one stale answer.
+    const params = new URLSearchParams({ lang_prefs: options.languages });
     if (options.forcedKey) params.set('forced_key', options.forcedKey);
     if (options.matchThreshold !== undefined) params.set('match_threshold', String(options.matchThreshold));
     if (options.reviewThreshold !== undefined) params.set('review_threshold', String(options.reviewThreshold));

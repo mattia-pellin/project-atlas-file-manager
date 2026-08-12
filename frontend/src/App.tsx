@@ -20,10 +20,10 @@ import { Toast, Toasts } from './components/Toasts';
 import { TriageOverlay } from './components/TriageOverlay';
 import { columnIndex } from './lib/columns';
 import { gridReducer, initialGridState } from './lib/gridReducer';
-import { matchesChord } from './lib/keymap';
+import { formatChord, matchesChord } from './lib/keymap';
 import { runPool } from './lib/pool';
 import { needsTriage } from './lib/series';
-import { SCAN_CHORDS } from './lib/shortcuts';
+import { SCAN_CHORD, TRIAGE_CHORD, TRIAGE_ROW_CHORD } from './lib/shortcuts';
 import { hasStoredSettings, readStoredSettings, saveSettings, Settings, settingsFromConfig } from './lib/settings';
 import './styles/app.css';
 
@@ -43,6 +43,9 @@ const App: React.FC = () => {
     const [config, setConfig] = useState<AppConfig | null>(null);
     const [mode, setMode] = useState<Mode>('grid');
     const [triageStart, setTriageStart] = useState<string | null>(null);
+    // null means "the unsettled queue"; a list means triage was opened on those rows,
+    // which is how one row gets decided without walking through everything else.
+    const [triageIds, setTriageIds] = useState<string[] | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const toastSeq = useRef(0);
@@ -84,12 +87,11 @@ const App: React.FC = () => {
 
     const analyzeOptions = useMemo(
         () => ({
-            bypassCache: settings.bypassCache,
             languages: settings.languages,
             matchThreshold: settings.matchThreshold,
             reviewThreshold: settings.reviewThreshold
         }),
-        [settings.bypassCache, settings.languages, settings.matchThreshold, settings.reviewThreshold]
+        [settings.languages, settings.matchThreshold, settings.reviewThreshold]
     );
 
     /** One request per file, capped, with each row filling in as its answer lands. */
@@ -141,21 +143,23 @@ const App: React.FC = () => {
             if (items.length === 0) return;
             const analyzed = await analyzeAll(items, undefined, 'Analyzing');
 
-            if (settings.autoSelectMatched) {
-                const confident = analyzed.filter((item) => item.status === 'matched').map((item) => item.id);
-                if (confident.length > 0) dispatch({ type: 'setSelection', ids: confident });
-            }
+            // Ticking the confident rows is not optional: it is what the match threshold
+            // *means*, and a switch that turned it off left the threshold describing a
+            // behaviour the app was not performing. Move the threshold instead.
+            const confident = analyzed.filter((item) => item.status === 'matched').map((item) => item.id);
+            if (confident.length > 0) dispatch({ type: 'setSelection', ids: confident });
+
             const unsettled = analyzed.filter((item) => item.status === 'review' || item.status === 'error').length;
-            if (unsettled > 0) say(`${unsettled} file(s) need a decision — Ctrl+T to triage them`);
+            if (unsettled > 0) say(`${unsettled} file(s) need a decision — ${formatChord(TRIAGE_CHORD)} to triage them`);
         },
-        [analyzeAll, say, settings.autoSelectMatched]
+        [analyzeAll, say]
     );
 
     const scan = useCallback(async () => {
         setBusy('Scanning');
         let found: MediaItem[];
         try {
-            found = await scanDirectory(settings.directory, settings.bypassCache, settings.languages);
+            found = await scanDirectory(settings.directory, settings.languages);
         } catch (error) {
             setBusy(null);
             say((error as Error).message, 'error');
@@ -167,7 +171,7 @@ const App: React.FC = () => {
         // no proposal and, since the bulk re-match is gone, no way to get one.
         if (found.length === 0) say('No media files in that directory');
         else await analyze(found);
-    }, [analyze, say, settings.bypassCache, settings.directory, settings.languages]);
+    }, [analyze, say, settings.directory, settings.languages]);
 
     /**
      * A hand-picked candidate, replayed over every file it settles.
@@ -242,16 +246,57 @@ const App: React.FC = () => {
 
     const queue = useMemo(() => needsTriage(state.rows), [state.rows]);
 
+    /** What triage is looking at: the whole unsettled queue, or the rows it was opened on. */
+    const triageQueue = useMemo(() => {
+        if (triageIds === null) return queue;
+        const wanted = new Set(triageIds);
+        return state.rows.filter((row) => wanted.has(row.id));
+    }, [queue, state.rows, triageIds]);
+
+    /**
+     * Triage one row, whatever the scoring made of it.
+     *
+     * The queue only holds what the scoring *admitted* it could not settle, and the
+     * match that most needs correcting is often the one it was sure of — a confident
+     * 1.00 on the wrong series looks identical to a right one until you read the name.
+     * So this ignores status entirely and asks only whether there is anything to choose
+     * between.
+     */
+    const openTriageRow = useCallback(
+        (rowId: string | null) => {
+            const row = rowId === null ? undefined : state.rows.find((candidate) => candidate.id === rowId);
+            if (!row) {
+                say('No row is focused');
+                return;
+            }
+            if ((row.candidates ?? []).length === 0) {
+                say(`Nothing to choose from for ${row.original_name} — correct the title and the row re-matches`);
+                return;
+            }
+            setTriageIds([row.id]);
+            setTriageStart(row.id);
+            setMode('triage');
+        },
+        [say, state.rows]
+    );
+
     const openTriage = useCallback(
         (rowId: string | null) => {
+            // Opened on a row that the scoring did settle: that row alone, since it is
+            // not in the queue and there is nothing to walk through from it.
+            if (rowId !== null && !queue.some((row) => row.id === rowId)) {
+                openTriageRow(rowId);
+                return;
+            }
             if (queue.length === 0) {
                 say('Nothing to triage');
                 return;
             }
+            setTriageIds(null);
             setTriageStart(rowId);
             setMode('triage');
         },
-        [queue.length, say]
+        [openTriageRow, queue, say]
     );
 
     const counts: Counts = useMemo(
@@ -270,15 +315,22 @@ const App: React.FC = () => {
             {
                 id: 'scan',
                 label: 'Rescan the directory and match it again',
-                chord: SCAN_CHORDS[0],
+                chord: SCAN_CHORD,
                 run: () => void scan()
             },
             {
                 id: 'triage',
                 label: 'Triage the unsettled files',
-                chord: 'mod+t',
+                chord: TRIAGE_CHORD,
                 run: () => openTriage(null),
                 disabled: queue.length === 0
+            },
+            {
+                id: 'triage-row',
+                label: 'Triage this row — pick its match by hand',
+                chord: TRIAGE_ROW_CHORD,
+                run: () => openTriageRow(state.focusRowId),
+                disabled: state.focusRowId === null
             },
             {
                 id: 'rename',
@@ -313,7 +365,7 @@ const App: React.FC = () => {
             { id: 'cache', label: 'Empty the API cache', run: () => void emptyCache() },
             { id: 'keymap', label: 'Keyboard shortcuts', chord: 'mod+/', run: () => setMode('keymap') }
         ],
-        [counts.selected, emptyCache, openTriage, queue.length, scan, state.focusRowId, state.rows]
+        [counts.selected, emptyCache, openTriage, openTriageRow, queue.length, scan, state.focusRowId, state.rows]
     );
 
     // Global chords: the ones that have to work wherever focus happens to be. Everything
@@ -326,12 +378,15 @@ const App: React.FC = () => {
             } else if (matchesChord(event, 'mod+enter')) {
                 event.preventDefault();
                 if (counts.selected > 0) setMode('confirm');
-            } else if (SCAN_CHORDS.some((chord) => matchesChord(event, chord))) {
-                // Ctrl+R is the second of the two: preventing the browser's reload works,
-                // but only while this handler is the one that sees the key.
+            } else if (matchesChord(event, SCAN_CHORD)) {
+                // The browser reloads on this one; preventing it works, and a reload is
+                // the harmless failure mode if some browser ever refuses.
                 event.preventDefault();
                 void scan();
-            } else if (matchesChord(event, 'mod+t')) {
+            } else if (matchesChord(event, TRIAGE_ROW_CHORD)) {
+                event.preventDefault();
+                openTriageRow(state.focusRowId);
+            } else if (matchesChord(event, TRIAGE_CHORD)) {
                 event.preventDefault();
                 openTriage(null);
             } else if (matchesChord(event, 'mod+,')) {
@@ -344,7 +399,7 @@ const App: React.FC = () => {
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [counts.selected, openTriage, scan]);
+    }, [counts.selected, openTriage, openTriageRow, scan, state.focusRowId]);
 
     return (
         <div className="app">
@@ -386,7 +441,7 @@ const App: React.FC = () => {
             {mode === 'triage' && (
                 <TriageOverlay
                     rows={state.rows}
-                    queue={queue}
+                    queue={triageQueue}
                     startId={triageStart}
                     onPick={(items, candidate) => void applyPick(items, candidate)}
                     onSkip={() => undefined}

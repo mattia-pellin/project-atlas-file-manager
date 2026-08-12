@@ -282,6 +282,40 @@ describe('undo', () => {
     });
 });
 
+describe('cycling a choice cell', () => {
+    const TYPE = columnIndex('media_type');
+
+    it('flips the type without opening an editor', () => {
+        // The cell used to be a `<select>` reached by typing, which put the typed
+        // character in the draft, matched no option, and looked inert.
+        const state = run(initialGridState([row()]), { type: 'focusCell', rowId: '1', column: TYPE }, { type: 'cycleChoice' });
+        expect(state.rows[0].media_type).toBe('movie');
+        expect(state.editing).toBeNull();
+        expect(gridReducer(state, { type: 'cycleChoice' }).rows[0].media_type).toBe('episode');
+    });
+
+    it('lands on the first choice from a value that is neither', () => {
+        const state = run(
+            initialGridState([row({ media_type: 'unknown' })]),
+            { type: 'focusCell', rowId: '1', column: TYPE },
+            { type: 'cycleChoice' }
+        );
+        expect(state.rows[0].media_type).toBe('movie');
+    });
+
+    it('re-matches the row, because the type decides which API is asked', () => {
+        const state = run(initialGridState([row()]), { type: 'focusCell', rowId: '1', column: TYPE }, { type: 'cycleChoice' });
+        expect(state.rows[0].status).toBe('pending');
+        expect(state.staleRowIds).toEqual(['1']);
+    });
+
+    it('does nothing on a column that has no choices', () => {
+        const state = run(initialGridState([row()]), { type: 'focusCell', rowId: '1', column: TITLE }, { type: 'cycleChoice' });
+        expect(state.rows[0].clean_title).toBe('Show');
+        expect(state.staleRowIds).toEqual([]);
+    });
+});
+
 describe('merge', () => {
     it('replaces analyzed rows in place and leaves the rest alone', () => {
         const state = run(initialGridState(season(3)), {

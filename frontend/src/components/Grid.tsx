@@ -43,7 +43,7 @@ const helper = createColumnHelper<MediaItem>();
 
 export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCopy, onPaste }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
-    const editRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+    const editRef = useRef<HTMLInputElement>(null);
 
     const columns = useMemo(
         () =>
@@ -156,20 +156,17 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
             }
 
             // --- Editing ------------------------------------------------------------
-            if (matchesChord(event, 'enter')) {
+            if (matchesChord(event, 'enter') || matchesChord(event, 'f2')) {
                 event.preventDefault();
                 // Enter on the status dot opens triage: the dot is the thing that says
                 // the row is unresolved, so it is the thing you press.
                 if (spec?.id === 'status') {
-                    if (state.focusRowId) onOpenTriage(state.focusRowId);
+                    if (matchesChord(event, 'enter') && state.focusRowId) onOpenTriage(state.focusRowId);
+                } else if (spec?.choices) {
+                    dispatch({ type: 'cycleChoice' });
                 } else {
                     dispatch({ type: 'beginEdit' });
                 }
-                return;
-            }
-            if (matchesChord(event, 'f2')) {
-                event.preventDefault();
-                dispatch({ type: 'beginEdit' });
                 return;
             }
             if (matchesChord(event, 'delete') || matchesChord(event, 'backspace')) {
@@ -206,6 +203,15 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
             // Type-to-edit, last so it can never shadow a chord.
             if (isTypingKey(event) && spec?.editable) {
                 event.preventDefault();
+                // On a choice cell the initial letter *is* the answer — "m" is movie —
+                // rather than the first character of a value being typed.
+                if (spec.choices) {
+                    const wanted = spec.choices.find((choice) => choice.startsWith(event.key.toLowerCase()));
+                    if (wanted && state.focusRowId) {
+                        dispatch({ type: 'setCell', rowId: state.focusRowId, column: state.focusColumn, text: wanted });
+                    }
+                    return;
+                }
                 dispatch({ type: 'beginEdit', initial: event.key });
             }
         },
@@ -285,16 +291,24 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
                                             onMouseDown={() =>
                                                 dispatch({ type: 'focusCell', rowId: item.id, column: columnIdx })
                                             }
-                                            onDoubleClick={() => spec.editable && dispatch({ type: 'beginEdit' })}
+                                            onDoubleClick={() =>
+                                                spec.editable && !spec.choices && dispatch({ type: 'beginEdit' })
+                                            }
                                         >
                                             {edit ? (
                                                 <CellEditor
                                                     ref={editRef}
-                                                    kind={spec.choices ? 'choice' : 'text'}
-                                                    choices={spec.choices}
                                                     value={edit.draft}
                                                     onChange={(draft) => dispatch({ type: 'changeDraft', draft })}
                                                     onBlur={() => dispatch({ type: 'commitEdit', then: 'stay' })}
+                                                />
+                                            ) : spec.choices ? (
+                                                <ChoiceCell
+                                                    value={cellText(item, spec.id)}
+                                                    choices={spec.choices}
+                                                    onPick={(text) =>
+                                                        dispatch({ type: 'setCell', rowId: item.id, column: columnIdx, text })
+                                                    }
                                                 />
                                             ) : (
                                                 <span className="grid-value">
@@ -316,44 +330,50 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
     );
 };
 
+/**
+ * A cell with a fixed set of values, shown as the values themselves.
+ *
+ * It replaces a `<select>` that opened on type-to-edit seeded with the character
+ * typed — which matched no option, so the control looked stuck and could be committed
+ * as neither movie nor episode. Both answers being visible at once means the cell can
+ * be read without being opened, and changed in one click or one key.
+ */
+const ChoiceCell: React.FC<{ value: string; choices: readonly string[]; onPick: (value: string) => void }> = ({
+    value,
+    choices,
+    onPick
+}) => (
+    <span className="choice">
+        {choices.map((choice) => (
+            <button
+                key={choice}
+                type="button"
+                className={`choice-option${choice === value ? ' is-on' : ''}`}
+                aria-pressed={choice === value}
+                tabIndex={-1}
+                onClick={() => onPick(choice)}
+            >
+                {choice}
+            </button>
+        ))}
+    </span>
+);
+
 interface EditorProps {
-    kind: 'text' | 'choice';
-    choices?: readonly string[];
     value: string;
     onChange: (value: string) => void;
     onBlur: () => void;
 }
 
-const CellEditor = React.forwardRef<HTMLInputElement | HTMLSelectElement, EditorProps>(
-    ({ kind, choices, value, onChange, onBlur }, ref) => {
-        if (kind === 'choice' && choices) {
-            return (
-                <select
-                    ref={ref as React.Ref<HTMLSelectElement>}
-                    className="cell-editor"
-                    value={value}
-                    onChange={(event) => onChange(event.target.value)}
-                    onBlur={onBlur}
-                >
-                    {choices.map((choice) => (
-                        <option key={choice} value={choice}>
-                            {choice}
-                        </option>
-                    ))}
-                </select>
-            );
-        }
-        return (
-            <input
-                ref={ref as React.Ref<HTMLInputElement>}
-                className="cell-editor"
-                value={value}
-                spellCheck={false}
-                autoComplete="off"
-                onChange={(event) => onChange(event.target.value)}
-                onBlur={onBlur}
-            />
-        );
-    }
-);
+const CellEditor = React.forwardRef<HTMLInputElement, EditorProps>(({ value, onChange, onBlur }, ref) => (
+    <input
+        ref={ref}
+        className="cell-editor"
+        value={value}
+        spellCheck={false}
+        autoComplete="off"
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={onBlur}
+    />
+));
 CellEditor.displayName = 'CellEditor';

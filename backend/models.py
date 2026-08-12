@@ -90,3 +90,29 @@ class ConfigOut(BaseModel):
     # configuration one; this is what lets the UI say which it is.
     tmdb_configured: bool
     tvdb_configured: bool
+
+
+class KeyStatus(BaseModel):
+    """The result of actually using a key, rather than of finding one set.
+
+    Four states, not two, because they call for four different actions and three of
+    them used to arrive as the same "Could not find a match":
+
+    - `missing`     — nothing in the environment. Set it.
+    - `ok`          — the provider accepted it.
+    - `invalid`     — the provider rejected it. Rotate it.
+    - `unreachable` — the request never got an answer. Nothing is wrong with the key,
+                      and telling the user to replace it would be actively misleading;
+                      DNS on this network has failed this way before.
+
+    `detail` is a sentence for the tooltip. It must never carry the key itself, so it
+    is built from the status code and the exception type only.
+    """
+
+    state: str  # "ok" | "invalid" | "missing" | "unreachable"
+    detail: str
+
+
+class KeyCheckOut(BaseModel):
+    tmdb: KeyStatus
+    tvdb: KeyStatus

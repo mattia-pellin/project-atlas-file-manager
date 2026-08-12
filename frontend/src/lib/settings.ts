@@ -10,24 +10,19 @@ import { AppConfig } from '../api';
 
 export interface Settings {
     directory: string;
-    /** Comma-separated language pins, most preferred first. */
+    /** Comma-separated language pins, most preferred first. Validated in `lib/languages.ts`. */
     languages: string;
-    bypassCache: boolean;
     /** At or above this a row is auto-selected for rename. */
     matchThreshold: number;
     /** Below this no name is proposed at all. */
     reviewThreshold: number;
-    /** Tick every `matched` row automatically once analysis finishes. */
-    autoSelectMatched: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
     directory: '/media',
     languages: 'it,en',
-    bypassCache: false,
     matchThreshold: 0.75,
-    reviewThreshold: 0.45,
-    autoSelectMatched: true
+    reviewThreshold: 0.45
 };
 
 const STORAGE_KEY = 'atlas_settings_v1';
@@ -62,16 +57,15 @@ export const loadSettings = (raw: string | null): Settings => {
     const settings: Settings = {
         directory: typeof stored.directory === 'string' && stored.directory ? stored.directory : DEFAULT_SETTINGS.directory,
         languages: typeof stored.languages === 'string' && stored.languages ? stored.languages : DEFAULT_SETTINGS.languages,
-        bypassCache: typeof stored.bypassCache === 'boolean' ? stored.bypassCache : DEFAULT_SETTINGS.bypassCache,
         matchThreshold: isFraction(stored.matchThreshold) ? stored.matchThreshold : DEFAULT_SETTINGS.matchThreshold,
-        reviewThreshold: isFraction(stored.reviewThreshold) ? stored.reviewThreshold : DEFAULT_SETTINGS.reviewThreshold,
-        autoSelectMatched: typeof stored.autoSelectMatched === 'boolean' ? stored.autoSelectMatched : DEFAULT_SETTINGS.autoSelectMatched
+        reviewThreshold: isFraction(stored.reviewThreshold) ? stored.reviewThreshold : DEFAULT_SETTINGS.reviewThreshold
     };
 
     // The backend rejects review > match with a 400. Correcting it here rather than
     // letting every row fail is the one place clamping is right: this value was never
-    // shown to the user, it came out of storage.
-    if (settings.reviewThreshold > settings.matchThreshold) {
+    // shown to the user, it came out of storage. Equal is repaired too: the slider
+    // cannot produce it, and it makes `review` a band no row can ever land in.
+    if (settings.reviewThreshold >= settings.matchThreshold) {
         settings.reviewThreshold = DEFAULT_SETTINGS.reviewThreshold;
         settings.matchThreshold = DEFAULT_SETTINGS.matchThreshold;
     }

@@ -1,15 +1,26 @@
-import React, { useEffect, useState } from 'react';
-import { AppConfig } from '../api';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AppConfig, checkKeys, KeyCheck } from '../api';
+import { languagesError, parseLanguages, serializeLanguages } from '../lib/languages';
 import { DEFAULT_SETTINGS, Settings } from '../lib/settings';
+import { Kbd } from './Kbd';
+import { KeyStatusIcon } from './KeyStatusIcon';
+import { LanguageEditor } from './LanguageEditor';
+import { ThresholdSlider } from './ThresholdSlider';
 
 /**
- * Every override, in one panel.
+ * Every override, in one window.
  *
- * Two kinds of value live here and they are deliberately shown apart: what the user
- * controls (top) and what the server reports (bottom, read-only). The thresholds are
- * the sharp ones — they decide whether a row is renamed unattended — so they show the
- * default they moved away from, and the impossible pair is refused here rather than
- * turning into a 400 on every single row.
+ * Four sections, and each one is a thing the user can get wrong in a way the app cannot
+ * detect later: a directory outside the root, a language code nothing speaks, a pair of
+ * thresholds that decide what gets renamed unattended, and a key that is set but dead.
+ * So each one is checked here, in front of the user, rather than turning into a row that
+ * says "Could not find a match".
+ *
+ * What is *not* here is as deliberate. There is no "tick confident matches" switch —
+ * that is what a confidence threshold is for, and having both meant two controls
+ * fighting over one behaviour. There is no "ignore the cache" switch either: emptying
+ * the cache is the same thing, done once, and does not silently multiply every future
+ * scan's API traffic.
  */
 
 interface SettingsProps {
@@ -20,8 +31,6 @@ interface SettingsProps {
     onClose: () => void;
 }
 
-const clampFraction = (value: number): number => Math.min(1, Math.max(0, value));
-
 const formatBytes = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -30,6 +39,9 @@ const formatBytes = (bytes: number): string => {
 
 export const SettingsPanel: React.FC<SettingsProps> = ({ settings, config, onApply, onClearCache, onClose }) => {
     const [draft, setDraft] = useState<Settings>(settings);
+    const [codes, setCodes] = useState<string[]>(() => parseLanguages(settings.languages));
+    const [keys, setKeys] = useState<KeyCheck | null>(null);
+    const [checking, setChecking] = useState(false);
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
@@ -39,11 +51,26 @@ export const SettingsPanel: React.FC<SettingsProps> = ({ settings, config, onApp
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [onClose]);
 
-    const set = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft((current) => ({ ...current, [key]: value }));
+    /** Uses each key once. Nothing is cached, so an "ok" here is about right now. */
+    const recheck = useCallback(async () => {
+        setChecking(true);
+        try {
+            setKeys(await checkKeys());
+        } catch (error) {
+            const detail = (error as Error).message;
+            setKeys({ tmdb: { state: 'unreachable', detail }, tvdb: { state: 'unreachable', detail } });
+        }
+        setChecking(false);
+    }, []);
 
-    // The backend rejects review > match outright rather than reordering the pair; the
-    // slider does the same, so the state the user can see is always a state that works.
-    const impossible = draft.reviewThreshold > draft.matchThreshold;
+    useEffect(() => {
+        void recheck();
+    }, [recheck]);
+
+    const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
+        setDraft((current) => ({ ...current, [key]: value }));
+
+    const languageError = languagesError(codes);
 
     return (
         <div className="scrim" onMouseDown={onClose}>
@@ -57,135 +84,115 @@ export const SettingsPanel: React.FC<SettingsProps> = ({ settings, config, onApp
                 <header className="panel-head">
                     <h2>Settings</h2>
                     <button type="button" className="button ghost" onClick={onClose}>
-                        Esc
+                        <Kbd chord="escape" />
                     </button>
                 </header>
 
                 <div className="panel-body">
                     <section className="field-group">
-                        <h3>Library</h3>
-                        <label className="field">
-                            <span className="field-label">Directory to scan</span>
+                        <h3>Scan</h3>
+                        <div className="field">
                             <input
                                 className="input mono"
                                 value={draft.directory}
                                 spellCheck={false}
+                                aria-label="Directory to scan"
                                 onChange={(event) => set('directory', event.target.value)}
                             />
                             <span className="field-hint">
                                 Must resolve inside {config ? config.media_roots.join(', ') : 'the configured roots'}.
                             </span>
-                        </label>
-                        <label className="field">
-                            <span className="field-label">Language preference</span>
-                            <input
-                                className="input mono"
-                                value={draft.languages}
-                                spellCheck={false}
-                                onChange={(event) => set('languages', event.target.value)}
-                            />
-                            <span className="field-hint">Comma-separated, most preferred first — titles are taken in this order.</span>
-                        </label>
+                        </div>
+                    </section>
+
+                    <section className="field-group">
+                        <h3>Languages</h3>
+                        <LanguageEditor codes={codes} onChange={setCodes} />
+                        {languageError ? (
+                            <p className="field-error">{languageError}</p>
+                        ) : (
+                            <span className="field-hint">
+                                Most preferred first — click a code to move it to the front, × to drop it.
+                            </span>
+                        )}
                     </section>
 
                     <section className="field-group">
                         <h3>Confidence</h3>
-                        <label className="field">
-                            <span className="field-label">
-                                Auto-select at or above
-                                <strong className="mono">{draft.matchThreshold.toFixed(2)}</strong>
-                            </span>
-                            <input
-                                type="range"
-                                min={0}
-                                max={1}
-                                step={0.01}
-                                value={draft.matchThreshold}
-                                onChange={(event) => set('matchThreshold', clampFraction(Number(event.target.value)))}
-                            />
-                            <span className="field-hint">
-                                A row this confident is ticked for rename without being looked at. Default {DEFAULT_SETTINGS.matchThreshold.toFixed(2)}.
-                            </span>
-                        </label>
-                        <label className="field">
-                            <span className="field-label">
-                                Propose a name at or above
-                                <strong className="mono">{draft.reviewThreshold.toFixed(2)}</strong>
-                            </span>
-                            <input
-                                type="range"
-                                min={0}
-                                max={1}
-                                step={0.01}
-                                value={draft.reviewThreshold}
-                                onChange={(event) => set('reviewThreshold', clampFraction(Number(event.target.value)))}
-                            />
-                            <span className="field-hint">
-                                Below this the row is left unnamed and goes to triage. Default {DEFAULT_SETTINGS.reviewThreshold.toFixed(2)}.
-                            </span>
-                        </label>
-                        {impossible && <p className="field-error">The review threshold cannot sit above the match threshold.</p>}
+                        <ThresholdSlider
+                            review={draft.reviewThreshold}
+                            match={draft.matchThreshold}
+                            onChange={({ review, match }) =>
+                                setDraft((current) => ({ ...current, reviewThreshold: review, matchThreshold: match }))
+                            }
+                        />
+                        <span className="field-hint">
+                            Default {DEFAULT_SETTINGS.reviewThreshold.toFixed(2)} and{' '}
+                            {DEFAULT_SETTINGS.matchThreshold.toFixed(2)}. Confidence is the leader's score damped by how
+                            close the runner-up is, so a tie lands in the middle band whatever the titles score alone.
+                        </span>
                     </section>
 
-                    <section className="field-group">
-                        <h3>Behaviour</h3>
-                        <label className="check">
-                            <input
-                                type="checkbox"
-                                checked={draft.autoSelectMatched}
-                                onChange={(event) => set('autoSelectMatched', event.target.checked)}
-                            />
-                            <span>Tick confident matches automatically</span>
-                        </label>
-                        <label className="check">
-                            <input
-                                type="checkbox"
-                                checked={draft.bypassCache}
-                                onChange={(event) => set('bypassCache', event.target.checked)}
-                            />
-                            <span>Ignore the cache and ask TMDB/TVDB again</span>
-                        </label>
-                    </section>
+                    <div className="settings-split">
+                        <section className="field-group">
+                            <h3>
+                                API keys
+                                <button
+                                    type="button"
+                                    className="button ghost tiny"
+                                    onClick={() => void recheck()}
+                                    disabled={checking}
+                                >
+                                    Re-check
+                                </button>
+                            </h3>
+                            <ul className="key-list">
+                                <li>
+                                    <span>TMDB</span>
+                                    <KeyStatusIcon status={keys?.tmdb ?? null} checking={checking} />
+                                </li>
+                                <li>
+                                    <span>TVDB</span>
+                                    <KeyStatusIcon status={keys?.tvdb ?? null} checking={checking} />
+                                </li>
+                            </ul>
+                        </section>
 
-                    <section className="field-group">
-                        <h3>Cache and keys</h3>
-                        <dl className="readout">
-                            <div>
-                                <dt>Cached entries</dt>
-                                <dd className="mono">{config ? config.cache_entries : '—'}</dd>
-                            </div>
-                            <div>
-                                <dt>On disk</dt>
-                                <dd className="mono">{config ? formatBytes(config.cache_size_bytes) : '—'}</dd>
-                            </div>
-                            <div>
-                                <dt>Entries expire after</dt>
-                                <dd className="mono">{config ? `${config.cache_ttl_hours} h` : '—'}</dd>
-                            </div>
-                            <div>
-                                <dt>TMDB key</dt>
-                                <dd>{config?.tmdb_configured ? 'configured' : 'missing'}</dd>
-                            </div>
-                            <div>
-                                <dt>TVDB key</dt>
-                                <dd>{config?.tvdb_configured ? 'configured' : 'missing'}</dd>
-                            </div>
-                        </dl>
-                        <button type="button" className="button" onClick={onClearCache}>
-                            Empty the cache
-                        </button>
-                    </section>
+                        <section className="field-group">
+                            <h3>Cache</h3>
+                            <p className="cache-line mono">
+                                {config
+                                    ? `${config.cache_entries} entries · ${formatBytes(config.cache_size_bytes)} · ${config.cache_ttl_hours} h`
+                                    : '—'}
+                            </p>
+                            <button type="button" className="button" onClick={onClearCache}>
+                                Empty the cache
+                            </button>
+                        </section>
+                    </div>
                 </div>
 
                 <footer className="panel-foot">
-                    <button type="button" className="button ghost" onClick={() => setDraft({ ...DEFAULT_SETTINGS, directory: draft.directory })}>
+                    <button
+                        type="button"
+                        className="button ghost"
+                        onClick={() => {
+                            setDraft({ ...DEFAULT_SETTINGS, directory: draft.directory });
+                            setCodes(parseLanguages(DEFAULT_SETTINGS.languages));
+                        }}
+                    >
                         Reset to defaults
                     </button>
                     <div className="spacer" />
                     <button type="button" className="button ghost" onClick={onClose}>
                         Cancel
                     </button>
-                    <button type="button" className="button primary" disabled={impossible} onClick={() => onApply(draft)}>
+                    <button
+                        type="button"
+                        className="button primary"
+                        disabled={languageError !== null}
+                        onClick={() => onApply({ ...draft, languages: serializeLanguages(codes) })}
+                    >
                         Apply
                     </button>
                 </footer>

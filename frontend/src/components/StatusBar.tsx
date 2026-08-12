@@ -1,6 +1,8 @@
 import React from 'react';
-import { Chord, formatChord } from '../lib/keymap';
+import { Chord } from '../lib/keymap';
+import { TRIAGE_CHORD, TRIAGE_ROW_CHORD } from '../lib/shortcuts';
 import { Counts } from './CommandBar';
+import { Kbd } from './Kbd';
 
 /**
  * The single-line footer from design C: counts on the left, the keys that work
@@ -25,7 +27,8 @@ const HINTS: Record<Mode, Hint[]> = {
         { chord: 'enter', what: 'edit' },
         { chord: 'space', what: 'tick' },
         { chord: 'mod+d', what: 'fill down' },
-        { chord: 'mod+t', what: 'triage' },
+        { chord: TRIAGE_ROW_CHORD, what: 'triage row' },
+        { chord: TRIAGE_CHORD, what: 'triage all' },
         { chord: 'mod+enter', what: 'rename' },
         { chord: 'mod+k', what: 'commands' }
     ],
@@ -76,7 +79,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ counts, directory, mode })
         <span className="status-hints">
             {HINTS[mode].map((hint) => (
                 <span key={hint.chord} className="status-hint">
-                    <kbd>{formatChord(hint.chord)}</kbd>
+                    <Kbd chord={hint.chord} />
                     <span>{hint.what}</span>
                 </span>
             ))}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { formatChord } from '../lib/keymap';
+import { Kbd } from './Kbd';
 
 /**
  * Ctrl+K.
@@ -95,7 +95,7 @@ export const CommandPalette: React.FC<PaletteProps> = ({ commands, onClose }) =>
                             >
                                 <span className="palette-label">{command.label}</span>
                                 {command.hint && <span className="palette-hint">{command.hint}</span>}
-                                {command.chord && <kbd>{formatChord(command.chord)}</kbd>}
+                                {command.chord && <Kbd chord={command.chord} />}
                             </button>
                         </li>
                     ))}

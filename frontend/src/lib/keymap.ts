@@ -46,16 +46,62 @@ const SYMBOLS: Record<string, string> = {
     delete: 'Del'
 };
 
+/** Words for a screen reader, where a glyph is either silent or read as punctuation. */
+const SPOKEN: Record<string, string> = {
+    arrowup: 'Up arrow',
+    arrowdown: 'Down arrow',
+    arrowleft: 'Left arrow',
+    arrowright: 'Right arrow',
+    enter: 'Enter',
+    escape: 'Escape',
+    space: 'Space',
+    backspace: 'Backspace',
+    delete: 'Delete'
+};
+
+const titleCase = (part: string): string =>
+    part.length === 1 ? part.toUpperCase() : part.replace(/^./, (c) => c.toUpperCase());
+
+export const chordSeparator = (): string => (isMac() ? '' : '+');
+
+/**
+ * A chord broken into the pieces a `<kbd>` draws, one per key.
+ *
+ * `token` is the raw part, so a renderer can swap in an icon for the keys whose
+ * glyph does not sit on the text baseline — `↵` above all, which is drawn a third
+ * of a line lower than the letters beside it in most monospace faces and makes a
+ * chord look broken. `label` is the fallback text and stays authoritative for
+ * everything else.
+ */
+export interface ChordPart {
+    token: string;
+    label: string;
+}
+
+export const chordParts = (chord: Chord): ChordPart[] =>
+    chord.split('+').map((token) => {
+        if (token === 'mod') return { token, label: isMac() ? '⌘' : 'Ctrl' };
+        if (token === 'shift') return { token, label: isMac() ? '⇧' : 'Shift' };
+        if (token === 'alt') return { token, label: isMac() ? '⌥' : 'Alt' };
+        return { token, label: SYMBOLS[token] ?? titleCase(token) };
+    });
+
 export const formatChord = (chord: Chord): string =>
+    chordParts(chord)
+        .map((part) => part.label)
+        .join(chordSeparator());
+
+/** The chord spelled out, for `aria-label` and `title`. */
+export const describeChord = (chord: Chord): string =>
     chord
         .split('+')
         .map((part) => {
-            if (part === 'mod') return isMac() ? '⌘' : 'Ctrl';
-            if (part === 'shift') return isMac() ? '⇧' : 'Shift';
-            if (part === 'alt') return isMac() ? '⌥' : 'Alt';
-            return SYMBOLS[part] ?? (part.length === 1 ? part.toUpperCase() : part.replace(/^./, (c) => c.toUpperCase()));
+            if (part === 'mod') return isMac() ? 'Command' : 'Control';
+            if (part === 'shift') return 'Shift';
+            if (part === 'alt') return isMac() ? 'Option' : 'Alt';
+            return SPOKEN[part] ?? titleCase(part);
         })
-        .join(isMac() ? '' : '+');
+        .join(' ');
 
 /**
  * Keys that must never start an edit.

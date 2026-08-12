@@ -26,7 +26,9 @@ export interface ColumnSpec {
 export const COLUMNS: readonly ColumnSpec[] = [
     { id: 'status', header: '', width: 34, editable: false, align: 'center' },
     { id: 'original_name', header: 'On disk', width: 260, grow: true, editable: false },
-    { id: 'media_type', header: 'Type', width: 82, editable: true, choices: ['movie', 'episode'] },
+    // Wide enough for both segments of the toggle to be legible side by side. A choice
+    // cell is not typed into, so the width is the control's, not the longest value's.
+    { id: 'media_type', header: 'Type', width: 124, editable: true, choices: ['movie', 'episode'] },
     { id: 'clean_title', header: 'Title', width: 210, editable: true },
     { id: 'year', header: 'Year', width: 58, editable: true, mono: true, align: 'right' },
     { id: 'season', header: 'S', width: 46, editable: true, mono: true, align: 'right' },

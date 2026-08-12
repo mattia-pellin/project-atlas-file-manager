@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { formatChord } from '../lib/keymap';
 import { SHORTCUTS } from '../lib/shortcuts';
+import { Kbd } from './Kbd';
 
 /** The keymap, rendered from the same strings the handlers match against. */
 export const KeymapOverlay: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -35,11 +35,11 @@ export const KeymapOverlay: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                                 {group.shortcuts.map((shortcut) => (
                                     <div key={`${group.title}-${shortcut.chord}`} className="keymap-row">
                                         <dt>
-                                            <kbd>{formatChord(shortcut.chord)}</kbd>
+                                            <Kbd chord={shortcut.chord} />
                                             {shortcut.also && (
                                                 <>
                                                     <span className="keymap-or">or</span>
-                                                    <kbd>{formatChord(shortcut.also)}</kbd>
+                                                    <Kbd chord={shortcut.also} />
                                                 </>
                                             )}
                                         </dt>
