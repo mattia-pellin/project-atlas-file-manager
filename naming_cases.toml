@@ -1,0 +1,63 @@
+# Naming cases — the file → name expectations, written by hand.
+#
+# WHAT THIS IS FOR
+#
+# When a file comes out with the wrong name while you are using the app, add it here
+# before you fix anything. The point is that the example survives: the fixtures in
+# test_media/ only cover what we thought to test, and a real library keeps finding
+# things we did not.
+#
+# HOW TO ADD ONE
+#
+#   [[case]]
+#   file   = "exactly the filename, extension included"
+#   expect = "exactly the name it should end up with, extension included"
+#   note   = "why — one line, so the next reader knows what is being defended"
+#
+# Optional on any case:
+#
+#   status     = "matched" | "review" | "error"   what the app should decide
+#   lang       = ["it", "en"]                     title languages, most preferred first
+#   forced_key = "121361"                         a candidate picked by hand in triage
+#
+# `expect = ""` means "the app must refuse to name this". That is a real expectation
+# and often the right one: a wrong name is worse than no name.
+#
+# HOW TO RUN THEM
+#
+#   .venv/bin/python -m pytest backend/test_naming_cases.py   offline; is each case sane?
+#   .venv/bin/python scripts/check-naming-cases.py            live; does each case pass?
+#
+# The offline test runs in the normal suite and never touches the network. It catches
+# the case that could never pass — a typo in `expect`, an illegal character, an episode
+# name expected from a filename with no episode number in it. The live script is the
+# one that answers "is the app right", and needs the TMDB/TVDB keys in .env.
+#
+# Nothing here touches the filesystem: the files are named, never opened, so a case may
+# describe a file that only ever existed on your NAS.
+
+# --- Seeded from the run recorded in CLAUDE.md, 2026-08-12 ------------------------
+
+[[case]]
+file = "Breaking Bad S02E10-12.mkv"
+expect = "Breaking Bad - S02E10-E12 - Game Over - Mandala - Phoenix.mkv"
+status = "matched"
+note = "A range keeps Plex's S01E01-E02 form, and every episode title is listed."
+
+[[case]]
+file = "The Matrix | Reloaded | 2003.mkv"
+expect = "Matrix Reloaded (2003).mkv"
+status = "matched"
+note = "Pipes become separators, and the year has to outrank the shorter 'The Matrix'."
+
+[[case]]
+file = "Star Wars The Empire Strikes Back - 1980.mp4"
+expect = "L'Impero Colpisce Ancora (1980).mp4"
+status = "matched"
+note = "Italian title, matched via original_title because the IT one shares no words."
+
+[[case]]
+file = "all'ombra dell'olmo (2010).avi"
+expect = ""
+status = "error"
+note = "TMDB has no candidate at all. Refusing is correct; inventing a name is not."

@@ -102,7 +102,9 @@ def report(case: NamingCase, passed: bool, item: MediaItem | None, reason: str) 
     # it, the case just needs `forced_key = "<key>"` and the app is not wrong at all.
     for candidate in item.candidates[:5]:
         picked = "*" if candidate.selected else " "
-        year = f" ({candidate.year})" if candidate.year else ""
+        # TVDB already puts the year in the label; TMDB does not. Printing it twice
+        # makes two candidates that differ only by year harder to tell apart, not easier.
+        year = f" ({candidate.year})" if candidate.year and str(candidate.year) not in candidate.label else ""
         print(f"      {picked} {candidate.key:>10}  {candidate.score:.2f}  {candidate.label}{year}")
 
 

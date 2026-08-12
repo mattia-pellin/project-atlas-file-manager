@@ -30,13 +30,16 @@ neither should reappear.)
 | Frontend lint | `cd frontend && npm run lint` |
 | Frontend types | `cd frontend && npm run typecheck` |
 | Frontend tests | `cd frontend && npm test` |
+| Naming cases, live | `.venv/bin/python scripts/check-naming-cases.py` |
 | Dev servers | `/dev` |
 | Sync `.venv/` to the lock | `.venv/bin/uv sync` |
 | Reset the writable fixture copy | `scripts/sandbox-media.sh` |
 | Container, against that copy | `MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build` |
 
 The dev backend runs on **:8001** (Vite proxies `/api` there, see
-`frontend/vite.config.ts`); the production container serves both on **:8000**.
+`frontend/vite.config.ts`); the production container serves both on **:8000**
+internally and is **published on :8080** (`PORT` in `.env`, left side of the
+compose mapping only — the `EXPOSE`/`CMD` port in the image stays 8000).
 
 **Never `docker compose up` without overriding `MEDIA_DIR`.** The one in `.env`
 is the real Plex library, and the container mounts it read-write. See *Trying the
@@ -369,6 +372,8 @@ subsequent episodes make no request at all.
   `asyncio.Lock`, and `calculate_padding()`.
 - `backend/parser.py` — thin `guessit` wrapper; normalises multi-episode
   lists to a `"10-12"` string and rejoins `alternative_title` onto the title.
+- `naming_cases.toml` / `backend/naming_cases.py` — the hand-written
+  `file → expect` list and its loader. See **Naming cases** below.
 - `frontend/src/lib/validation.ts` — row validation. A row that fails
   `isRowValid` cannot be selected, so it cannot be renamed. This is the last
   gate before the filesystem; keep these functions pure and tested.
@@ -498,9 +503,9 @@ filesystem should be one thin, easily journaled layer.
 
 ## Measured behaviour against the live APIs
 
-Run `live-check` (`.claude/skills/live-check/`) to reproduce. Against the fifteen
+Run `live-check` (`.claude/skills/live-check/`) to reproduce. Against the sixteen
 media fixtures in `test_media/`, on 2026-08-12, with `lang=it,en`, through the
-**container**: **7 auto-selected, 6 held for review, 2 unmatched — and nothing is
+**container**: **7 auto-selected, 7 held for review, 2 unmatched — and nothing is
 confidently wrong.** That last clause is the number that matters; an earlier run
 proposed more names but two of them were wrong *and* labelled `"matched"`.
 
@@ -621,7 +626,7 @@ the rollback journal; re-enable the rule in that commit.
 
 ## Testing this app for real
 
-`test_media/` holds fifteen deliberately awkward media files and one that is
+`test_media/` holds sixteen deliberately awkward media files and one that is
 deliberately not media. Each one is there to break something specific:
 
 | Fixture | What it exercises |
@@ -660,4 +665,43 @@ MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build
 `sandbox/` is gitignored. The `MEDIA_DIR` override is not optional and not
 cosmetic: without it compose reads the one in `.env`, which points at the real
 Plex library. Re-run the script to start from clean fixtures again; the app is
-on <http://localhost:8000>.
+on <http://localhost:8080>.
+
+### Naming cases — the ones found while using it
+
+`naming_cases.toml` at the repo root is a hand-edited list of `file` → `expect`
+pairs. The fixtures above test what we thought of; this file is where a name
+that came out wrong **during real use** is written down, in one `[[case]]`
+block, before anything is fixed. It is the user's own input channel — treat an
+entry there as a bug report with the reproduction already attached.
+
+```
+[[case]]
+file   = "One Piece - 1015.mkv"
+expect = "One Piece - S20E63 - ….mkv"
+note   = "absolute numbering; guessit reads it as S10E15"
+status = "review"          # optional: matched | review | error
+lang   = ["it", "en"]      # optional, default it,en
+forced_key = "81797"       # optional: replays a triage pick
+```
+
+`expect = ""` is a real expectation — "the app must refuse to name this" — and
+is often the right one. Two consumers share one loader (`backend/naming_cases.py`),
+so a case cannot mean one thing offline and another live:
+
+| | Command | Answers |
+| --- | --- | --- |
+| Offline, in the suite | `.venv/bin/python -m pytest backend/test_naming_cases.py` | *Could* this case pass? |
+| Live, on demand | `.venv/bin/python scripts/check-naming-cases.py` | Does it? |
+
+The split is the point. The offline test never touches the network; it catches
+the unsatisfiable case — a `?` or `:` that `sanitize_name` strips, a changed
+extension, an episode name expected from a filename guessit reads as a movie.
+Those look exactly like a wrong API match in a live run, and the hunt then
+starts in the wrong file. The live script sources `.env` itself (nothing in
+`backend/` calls `load_dotenv`), runs the cases serially, exits non-zero on any
+mismatch, and on failure prints the ranked candidates with their keys — so a
+case that only needs `forced_key` can be closed by pasting one number.
+
+Neither one touches the filesystem: a case is a filename, never a file, so it
+may describe something that only exists on the NAS.

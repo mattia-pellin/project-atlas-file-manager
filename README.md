@@ -1,4 +1,4 @@
-# Plex File Manager
+# Project: Atlas - Files
 
 A modern, containerized Single Page Application built to recursively scan, identify, and intelligently mass-rename your Movies and TV Series to be 100% compliant with Plex Media Server naming conventions. It uses TheMovieDb (TMDB) for movies and TheTVDB (TVDB) for series.
 
@@ -18,7 +18,7 @@ A modern, containerized Single Page Application built to recursively scan, ident
 1. Create a `.env` file in the root directory:
 ```env
 MEDIA_DIR=/path/to/your/real/media
-PORT=8000
+PORT=8080
 TMDB_API_KEY=your_tmdb_api_key
 TVDB_API_KEY=your_tvdb_api_key
 TVDB_PIN=your_tvdb_pin
@@ -29,11 +29,11 @@ TVDB_PIN=your_tvdb_pin
 docker-compose up -d --build
 ```
 
-3. Access the web interface at `http://localhost:8000`.
+3. Access the web interface at `http://localhost:8080`.
 
 ## Trying it without risking a library
 
-`test_media/` holds sixteen fixture files built to break the parser in a
+`test_media/` holds sixteen media fixtures built to break the parser in a
 different way each — multi-episode ranges, scene naming, absolute anime
 numbering, accents and elisions, a four-episode series that no scoring can
 disambiguate, a nested `Show/Season 1/` directory, and one text file the scan
@@ -48,6 +48,35 @@ MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build
 Re-run the script whenever you want the fixtures back. The `MEDIA_DIR` override
 matters: without it, compose uses the one in your `.env` — your real library.
 
+## Reporting a name that came out wrong
+
+The fixtures only cover what we thought of. When a real file gets a name it
+should not have, write it down in `naming_cases.toml` — filename in, expected
+name out — and it stays covered from then on:
+
+```toml
+[[case]]
+file   = "The Matrix | Reloaded | 2003.mkv"
+expect = "Matrix Reloaded (2003).mkv"
+note   = "pipes become separators, and the year outranks the shorter 'The Matrix'"
+```
+
+`expect = ""` means "the app must refuse to name this", which is often the right
+answer. `status`, `lang` and `forced_key` (a candidate picked in triage) are
+optional; the file itself documents them.
+
+```bash
+.venv/bin/python -m pytest backend/test_naming_cases.py   # offline: is the case even satisfiable?
+.venv/bin/python scripts/check-naming-cases.py            # live: does the app get it right?
+```
+
+The first runs in the normal test suite and catches the case that could never
+pass — an illegal character, a changed extension, an episode name expected from a
+filename with no episode number. The second calls TMDB/TVDB for real, exits
+non-zero on any mismatch, and prints the ranked candidates so a case that just
+needs a hand-picked match can be closed with one `forced_key`. Neither one opens,
+creates or renames a file.
+
 ## Configuration Options
 All configuration is handled via environment variables passed to the container:
 - `MEDIA_DIR` (Required): The host path to mount inside the container at `/media`.
@@ -58,7 +87,9 @@ All configuration is handled via environment variables passed to the container:
 - `TMDB_API_KEY` (Required for Movies): Your TMDB API key.
 - `TVDB_API_KEY` (Required for Series): Your TVDB v4 API key.
 - `TVDB_PIN` (Optional but recommended): Your TVDB User PIN for extended API access.
-- `PORT` (Optional): The port to bind to. Default is `8000`.
+- `PORT` (Optional): The host port the container is published on. Default is `8080`.
+  The app inside the container always listens on `8000`; this is only the left-hand
+  side of the compose port mapping.
 - `CACHE_TTL_HOURS` (Optional): How long API requests should be cached locally. Default `24`.
 - `LANG_PREFS` (Optional): Comma-separated title languages, most preferred first.
   Default `it,en`. This is only the value the UI starts with — the language pins,
