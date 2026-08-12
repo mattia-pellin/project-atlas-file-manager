@@ -7,7 +7,10 @@ A modern, containerized Single Page Application built to recursively scan, ident
 - **Intelligent Parsing**: Extracts title, year, season, and episode from chaotic filenames using `guessit`.
 - **API integrations**: Fetches accurate metadata with exponential backoff retries and local disk caching to prevent API abuse and bans.
 - **Dynamic Padding**: Automatically calculates episode padding (e.g., `E001`, `E012`) based on the total number of episodes in the series.
-- **Modern UI**: Material 3 Expressive UI with a robust DataGrid to allow checking and editing proposed names before manipulating the filesystem.
+- **Confidence scoring**: Every candidate a search returns is scored on title and year; a result the scoring cannot trust is held for review instead of being renamed silently.
+- **Keyboard-first grid**: A dark, dense, editable grid you can run entirely from the keyboard — arrows to move, type to edit, `Space` to tick, `Ctrl+D` to fill a column down, `Ctrl+Z` to undo. `Ctrl+/` lists every shortcut.
+- **Triage**: When two shows genuinely look alike, the ambiguous files are queued and answered with a digit — and one answer can be applied to every episode of the series at once.
+- **Everything is tunable**: Scan directory, language preference, confidence thresholds and the API cache are all exposed in the settings panel (`Ctrl+,`).
 
 ## Quick Start (Docker Compose)
 

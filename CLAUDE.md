@@ -309,10 +309,19 @@ were in force; an impossible pair is a `400` rather than being clamped, because 
 silently corrected threshold makes the UI report a band that is not the one
 applied.
 
-The frontend calls `/api/analyze` **once per file, all in parallel**
-(`App.tsx`, `handleScan`). There is no concurrency cap on either side, and
-`api_clients.py` opens a fresh `httpx.AsyncClient` per request. Keep this in
-mind before adding more per-item network calls.
+The frontend calls `/api/analyze` **once per file**, through a pool of six
+(`ANALYZE_CONCURRENCY` in `App.tsx`, `lib/pool.ts`). The backend has no cap of
+its own and `api_clients.py` opens a fresh `httpx.AsyncClient` per request, so
+the six is the only thing bounding the fan-out. Keep that in mind before adding
+more per-item network calls.
+
+**A re-analysis clears the row first.** The client sends the whole `MediaItem`
+back, previous answer included, so `enrich_media_item` resets `proposed_name`,
+`status`, `confidence`, `message` and `candidates` before it starts. Without
+that, an analysis that finds nothing — a stale `forced_key`, a hand-edited title
+that no longer matches — returned the *earlier* name and status unchanged and the
+row still read as decided. Found against the live API, pinned by
+`test_a_refused_reanalysis_does_not_return_the_previous_proposal`.
 
 ### Candidates and the hand-picked match
 
@@ -357,8 +366,20 @@ subsequent episodes make no request at all.
 - `frontend/src/lib/validation.ts` — row validation. A row that fails
   `isRowValid` cannot be selected, so it cannot be renamed. This is the last
   gate before the filesystem; keep these functions pure and tested.
-- `frontend/src/components/MediaTable.tsx` — editable DataGrid, keyboard
-  handling (space to select, F2 to edit, ctrl+C/V).
+- `frontend/src/lib/gridReducer.ts` — **the whole keyboard model**, as one pure
+  reducer: focus, type-to-edit, selection, fill-down, undo. Every key the grid
+  receives becomes an action here, so behaviour is tested without a DOM. Editing
+  an *input* field drops the row to `pending` and clears its candidates; editing
+  `proposed_name` does not, because that is a decision rather than staleness.
+- `frontend/src/lib/columns.ts` — the column model the reducer and the renderer
+  share. They must agree on order and editability: a reducer that thinks column
+  3 is the year while the header says season is silent data corruption.
+- `frontend/src/lib/series.ts` — groups episodes by normalised title, mirroring
+  `matching.normalize_title`, so one triage answer settles a whole season.
+  Grouped on the title and never on the matched id, because the rows needing the
+  fix are exactly the ones pointing at the wrong series.
+- `frontend/src/components/Grid.tsx` — TanStack Table + `@tanstack/react-virtual`.
+  Rendering and key routing only; no behaviour.
 
 ### Padding rule
 
@@ -402,6 +423,41 @@ of the tree. `resolve_rename_target` additionally requires a bare filename and
 returns both ends of the rename, so the caller cannot re-derive the source from
 the unchecked string.
 
+## The UI
+
+Rebuilt from nothing in the redesign, because the tool it replaced was a Google
+Sheet: not pretty, but operable entirely from the keyboard, and that fluency is
+the feature. MUI, `@mui/x-data-grid`, emotion, framer-motion and dnd-kit are all
+gone; the runtime dependencies are React plus `@tanstack/react-table` and
+`@tanstack/react-virtual`. The bundle went from ~1 MB to 258 kB.
+
+One screen, full-bleed, no sidebar: a 44px command bar over the grid. Everything
+else — triage, settings, keymap, command palette, the rename confirmation — is an
+overlay that `Esc` returns from.
+
+**The keyboard model is spreadsheet, not modal.** Bare printable keys always type
+into the focused cell, so every command is a modifier chord (`Ctrl+K` palette,
+`Ctrl+Enter` rename, `Ctrl+D` fill-down, `Ctrl+T` triage, `Ctrl+,` settings,
+`Ctrl+/` keymap). The one place bare letters and digits are free is **triage**,
+where nothing is being typed: `1`–`9` pick a candidate, `A` toggles apply-to-series,
+`S` skips. Chords are matched and rendered from the same string
+(`lib/keymap.ts`, `lib/shortcuts.ts`), so the help cannot drift from the behaviour.
+
+**Status is a dot, never a word** (`StatusDot.tsx`), and the dots differ by *fill*
+as well as hue — solid, hollow, dashed, crossed, ticked — so the state survives a
+colour-blind reader and a bad monitor. The word is still there as the accessible
+name. Selection is a 3px amber left edge, which keeps the dot the only circle on
+the row and removes the need for a checkbox column.
+
+**Triage is where a season gets settled in one keystroke.** The pick travels back
+as `forced_key`, not as a finished name, so the backend still builds the title,
+padding and episode titles: one decision across twenty-four files cannot produce
+twenty-four subtly different conventions. Movies are deliberately not grouped.
+
+Design tokens are in `src/styles/tokens.css` and are the only place a raw colour
+is written. The shape language is squared — 3px corners, no pills — and amber is
+the single accent, so amber always means "the thing you are acting on".
+
 ## Roadmap
 
 Planned, not yet built. Design new code so it doesn't have to be undone:
@@ -413,8 +469,7 @@ Planned, not yet built. Design new code so it doesn't have to be undone:
 3. **Rollback journal** — every automatic rename and move must be recorded in
    a durable, machine-readable log so the whole operation can be reversed.
    This is the safety net for 1 and 2 and should land with them, not after.
-4. **UI/UX redesign** — full rework of the visual language and of the
-   interaction model, prioritising usability.
+4. ~~**UI/UX redesign**~~ — done; see **The UI** above.
 
 Consequence for today's code: prefer pure functions that compute a target path
 from a `MediaItem` over code that renames inline. Anything that mutates the
@@ -518,10 +573,11 @@ the rollback journal; re-enable the rule in that commit.
   `.claude/hooks/guard-bash.sh` blocks shell redirects into it and any
   `git add` that names it. Add new configuration keys to `.env.example`,
   `docker-compose.yml` and the `README.md` table together.
-- The version string appears in `frontend/src/App.tsx` and
-  `frontend/package.json`. They are currently out of sync (`v1.9.0` vs
-  `1.0.0`); keep them together when bumping. Releases are cut by pushing a
-  `v*` tag, which triggers the GHCR build and the Portainer webhook.
+- The version string now lives **only** in `frontend/package.json`. The
+  redesigned shell does not print one — the two copies had drifted (`v1.9.0` vs
+  `1.0.0`) and a version rendered in the corner of a single-user home-lab app
+  was not worth a second source of truth. Releases are cut by pushing a `v*`
+  tag, which triggers the GHCR build and the Portainer webhook.
 
 ## Testing this app for real
 

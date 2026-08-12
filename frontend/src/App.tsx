@@ -1,414 +1,401 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useMediaQuery, ThemeProvider, createTheme, CssBaseline, Box, Typography, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Slider, Stack } from '@mui/material';
-import Brightness4Icon from '@mui/icons-material/Brightness4';
-import Brightness7Icon from '@mui/icons-material/Brightness7';
-import { MediaItem, scanDirectory, analyzeItem, renameItems } from './api';
-import { ActionHeader } from './components/ActionHeader';
-import { MediaTable } from './components/MediaTable';
-import { LanguagePin } from './components/LanguagePins';
-import { GridRowSelectionModel } from '@mui/x-data-grid';
-import { motion } from 'framer-motion';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+    analyzeItem,
+    AppConfig,
+    CandidateOut,
+    clearCache,
+    getConfig,
+    MediaItem,
+    renameItems,
+    scanDirectory
+} from './api';
+import { CommandBar, Counts } from './components/CommandBar';
+import { Command, CommandPalette } from './components/CommandPalette';
+import { ConfirmRename } from './components/ConfirmRename';
+import { Grid } from './components/Grid';
+import { KeymapOverlay } from './components/KeymapOverlay';
+import { SettingsPanel } from './components/SettingsPanel';
+import { Toast, Toasts } from './components/Toasts';
+import { TriageOverlay } from './components/TriageOverlay';
+import { columnIndex } from './lib/columns';
+import { gridReducer, initialGridState } from './lib/gridReducer';
+import { matchesChord } from './lib/keymap';
+import { runPool } from './lib/pool';
+import { needsTriage } from './lib/series';
+import { hasStoredSettings, readStoredSettings, saveSettings, Settings, settingsFromConfig } from './lib/settings';
+import './styles/app.css';
 
-function App() {
-    const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
-    const [themeMode, setThemeMode] = useState<'system' | 'light' | 'dark'>('system');
+/**
+ * The shell.
+ *
+ * It owns the network and the modes; the grid owns the keyboard and the reducer owns
+ * the data. Nothing here decides what a key does — that lives in `gridReducer`, which
+ * is testable without a DOM.
+ */
 
-    // Material 3 Expressive Theme setup
-    const isDark = themeMode === 'system' ? prefersDarkMode : themeMode === 'dark';
-    const theme = useMemo(() => createTheme({
-        palette: {
-            mode: isDark ? 'dark' : 'light',
-            primary: {
-                main: '#e5a00d', // Plex Orange
-                light: '#ffc107',
-                dark: '#f57c00',
-            },
-            secondary: {
-                main: '#00e5ff', // Vibrant cyan for high contrast
-            },
-            background: {
-                default: isDark ? '#121212' : '#f8f9fa',
-                paper: isDark ? '#1e1e1e' : '#ffffff',
-            },
-        },
-        shape: {
-            borderRadius: 16,
-        },
-        typography: {
-            fontFamily: '"Google Sans", "Outfit", "Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-            h3: {
-                fontFamily: '"Google Sans", "Outfit", sans-serif',
-                fontWeight: 800,
-                color: '#e5a00d',
-                letterSpacing: '-1.5px',
-            },
-        },
-        components: {
-            MuiButton: {
-                styleOverrides: {
-                    root: {
-                        textTransform: 'none',
-                        fontWeight: 600,
-                        borderRadius: 24,
-                        padding: '8px 24px',
-                    },
-                },
-            },
-            MuiPaper: {
-                styleOverrides: {
-                    root: {
-                        backgroundImage: 'none',
-                        boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.4)' : '0 8px 32px rgba(145,158,171,0.2)',
-                    },
-                },
-            },
-        },
-    }), [isDark]);
-    const [directory, setDirectory] = useState<string>('/media');
-    const [bypassCache, setBypassCache] = useState<boolean>(false);
+const ANALYZE_CONCURRENCY = 6;
 
-    // Initial language pins configuration
-    const [langPins, setLangPins] = useState<LanguagePin[]>([
-        { id: 'it-init', input: 'it', name: 'Italian', code: 'it' },
-        { id: 'en-init', input: 'en', name: 'English', code: 'en' }
-    ]);
+type Mode = 'grid' | 'triage' | 'settings' | 'keymap' | 'palette' | 'confirm';
 
-    const [items, setItems] = useState<MediaItem[]>(() => {
-        const saved = localStorage.getItem('atlas_media_items');
-        if (saved) {
-            try {
-                return JSON.parse(saved);
-            } catch (e) {
-                console.error('Failed to parse saved items from localStorage');
-            }
-        }
-        return [];
-    });
+const App: React.FC = () => {
+    const [state, dispatch] = useReducer(gridReducer, undefined, () => initialGridState([]));
+    const [settings, setSettings] = useState<Settings>(() => readStoredSettings());
+    const [config, setConfig] = useState<AppConfig | null>(null);
+    const [mode, setMode] = useState<Mode>('grid');
+    const [triageStart, setTriageStart] = useState<string | null>(null);
+    const [busy, setBusy] = useState<string | null>(null);
+    const [toasts, setToasts] = useState<Toast[]>([]);
+    const toastSeq = useRef(0);
 
+    const say = useCallback((text: string, tone: Toast['tone'] = 'info') => {
+        toastSeq.current += 1;
+        setToasts((current) => [...current, { id: `t${toastSeq.current}`, text, tone }]);
+    }, []);
+
+    const dismiss = useCallback((id: string) => setToasts((current) => current.filter((toast) => toast.id !== id)), []);
+
+    // The reducer reports what it refused to do; the shell is where that becomes visible.
     useEffect(() => {
-        localStorage.setItem('atlas_media_items', JSON.stringify(items));
-    }, [items]);
+        if (state.notice) {
+            say(state.notice);
+            dispatch({ type: 'dismissNotice' });
+        }
+    }, [say, state.notice]);
 
-    const [selectionModel, setSelectionModel] = useState<GridRowSelectionModel>([]);
-
-    const [isScanning, setIsScanning] = useState<boolean>(false);
-    const [isReanalyzing, setIsReanalyzing] = useState<boolean>(false);
-    const [isRenaming, setIsRenaming] = useState<boolean>(false);
-
-    const [snackbar, setSnackbar] = useState<{ open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning' }>({ open: false, message: '', severity: 'info' });
-    const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
-
-    const showMessage = (message: string, severity: 'success' | 'error' | 'info' | 'warning') => {
-        setSnackbar({ open: true, message, severity });
-    };
-
-    const sortMediaItems = (mediaList: MediaItem[]) => {
-        return [...mediaList].sort((a, b) => {
-            if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
-            if (b.media_type === 'movie' && a.media_type !== 'movie') return 1;
-
-            if (a.media_type === 'episode' && b.media_type === 'episode') {
-                const titleA = (a.clean_title || '').toLowerCase();
-                const titleB = (b.clean_title || '').toLowerCase();
-
-                if (titleA < titleB) return -1;
-                if (titleA > titleB) return 1;
-
-                if ((a.season || 0) !== (b.season || 0)) {
-                    return (a.season || 0) - (b.season || 0);
+    // The server's defaults apply only to a browser that has never saved any: once the
+    // user has chosen a threshold, a reload must not quietly take it back.
+    useEffect(() => {
+        getConfig()
+            .then((loaded) => {
+                setConfig(loaded);
+                if (!hasStoredSettings()) setSettings((current) => ({ ...current, ...settingsFromConfig(loaded) }));
+                if (!loaded.tmdb_configured || !loaded.tvdb_configured) {
+                    say('TMDB or TVDB key missing — analysis will match nothing until it is configured', 'error');
                 }
+            })
+            .catch((error: Error) => say(error.message, 'error'));
+    }, [say]);
 
-                const epA = typeof a.episode === 'string' ? parseInt(a.episode.split('-')[0], 10) : (a.episode || 0);
-                const epB = typeof b.episode === 'string' ? parseInt(b.episode.split('-')[0], 10) : (b.episode || 0);
-                return (isNaN(epA) ? 0 : epA) - (isNaN(epB) ? 0 : epB);
+    const applySettings = useCallback((next: Settings) => {
+        setSettings(next);
+        saveSettings(next);
+        setMode('grid');
+    }, []);
+
+    const analyzeOptions = useMemo(
+        () => ({
+            bypassCache: settings.bypassCache,
+            languages: settings.languages,
+            matchThreshold: settings.matchThreshold,
+            reviewThreshold: settings.reviewThreshold
+        }),
+        [settings.bypassCache, settings.languages, settings.matchThreshold, settings.reviewThreshold]
+    );
+
+    /** One request per file, capped, with each row filling in as its answer lands. */
+    const analyzeAll = useCallback(
+        async (items: MediaItem[], forcedKey: string | undefined, label: string): Promise<MediaItem[]> => {
+            let done = 0;
+            setBusy(`${label} 0/${items.length}`);
+            const results = await runPool(
+                items,
+                ANALYZE_CONCURRENCY,
+                async (item) => {
+                    try {
+                        return await analyzeItem(item, { ...analyzeOptions, forcedKey });
+                    } catch (error) {
+                        return { ...item, status: 'error' as const, message: (error as Error).message };
+                    }
+                },
+                (result) => {
+                    done += 1;
+                    setBusy(`${label} ${done}/${items.length}`);
+                    dispatch({ type: 'mergeRows', rows: [result] });
+                }
+            );
+            setBusy(null);
+            return results;
+        },
+        [analyzeOptions]
+    );
+
+    const analyze = useCallback(
+        async (items: MediaItem[]) => {
+            if (items.length === 0) return;
+            const analyzed = await analyzeAll(items, undefined, 'Analyzing');
+
+            if (settings.autoSelectMatched) {
+                const confident = analyzed.filter((item) => item.status === 'matched').map((item) => item.id);
+                if (confident.length > 0) dispatch({ type: 'setSelection', ids: confident });
             }
+            const unsettled = analyzed.filter((item) => item.status === 'review' || item.status === 'error').length;
+            if (unsettled > 0) say(`${unsettled} file(s) need a decision — Ctrl+T to triage them`);
+        },
+        [analyzeAll, say, settings.autoSelectMatched]
+    );
 
-            return 0; // fallback
-        });
-    };
-
-    const handleRestoreSort = () => {
-        setItems(prev => sortMediaItems(prev));
-        showMessage('Restored default sorting order', 'info');
-    };
-
-    const handleScan = async () => {
-        if (!directory) {
-            showMessage('Please provide a directory', 'error');
+    const scan = useCallback(async () => {
+        setBusy('Scanning');
+        let found: MediaItem[];
+        try {
+            found = await scanDirectory(settings.directory, settings.bypassCache, settings.languages);
+        } catch (error) {
+            setBusy(null);
+            say((error as Error).message, 'error');
             return;
         }
-        setIsScanning(true);
-        setItems([]);
-        setSelectionModel([]);
-        try {
-            // Build valid codes only, preserve order
-            const langStr = langPins.filter(p => p.code).map(p => p.code).join(',');
+        dispatch({ type: 'setRows', rows: found });
+        setBusy(null);
+        if (found.length === 0) say('No media files in that directory');
+        else if (settings.analyzeOnScan) await analyze(found);
+    }, [analyze, say, settings.analyzeOnScan, settings.bypassCache, settings.directory, settings.languages]);
 
-            // Step 1: Scan
-            const foundItems = await scanDirectory(directory, bypassCache, langStr);
-            setItems(sortMediaItems(foundItems));
-            showMessage(`Found ${foundItems.length} media files. Analyzing...`, 'info');
+    /**
+     * A hand-picked candidate, replayed over every file it settles.
+     *
+     * The pick travels as `forced_key`, not as a finished name: the backend still
+     * builds the title, the padding and the episode titles, so one decision across a
+     * season cannot produce twenty-four subtly different conventions. It costs no
+     * extra API calls either — the raw payloads are already cached, so this re-scores
+     * rather than re-searches.
+     */
+    const applyPick = useCallback(
+        async (items: MediaItem[], candidate: CandidateOut) => {
+            await analyzeAll(items, candidate.key, `Applying ${candidate.label} —`);
+            say(`${candidate.label} applied to ${items.length} file(s)`);
+        },
+        [analyzeAll, say]
+    );
 
-            // Step 2: Analyze concurrently for maximum speed, while visually updating the table progressively
-            const updatedItems = [...foundItems];
+    const selectedItems = useMemo(
+        () => state.rows.filter((row) => state.selected.has(row.id)),
+        [state.rows, state.selected]
+    );
 
-            const analyzePromises = foundItems.map(async (item) => {
-                try {
-                    const analyzed = await analyzeItem(item, bypassCache, langStr);
-                    setItems(prev => {
-                        const next = [...prev];
-                        const idx = next.findIndex(x => x.id === item.id);
-                        if (idx !== -1) next[idx] = analyzed;
-                        return next;
-                    });
-                    const idx = updatedItems.findIndex(x => x.id === item.id);
-                    if (idx !== -1) updatedItems[idx] = analyzed;
-                } catch (e: any) {
-                    setItems(prev => {
-                        const next = [...prev];
-                        const idx = next.findIndex(x => x.id === item.id);
-                        if (idx !== -1) {
-                            next[idx].status = 'error';
-                            next[idx].message = 'Analysis failed';
-                        }
-                        return next;
-                    });
-                    const idx = updatedItems.findIndex(x => x.id === item.id);
-                    if (idx !== -1) {
-                        updatedItems[idx].status = 'error';
-                        updatedItems[idx].message = 'Analysis failed';
-                    }
-                }
-            });
-
-            await Promise.all(analyzePromises);
-
-            const finalSortedItems = sortMediaItems(updatedItems);
-            setItems(finalSortedItems);
-
-            // Only confident matches are auto-selected. A 'review' row still has a
-            // proposed name, but the backend could not tell it apart from another
-            // title, so it must be ticked by hand — say so, or the row just looks skipped.
-            const reviewCount = finalSortedItems.filter(i => i.status === 'review').length;
-            if (reviewCount > 0) {
-                showMessage(`Analysis complete — ${reviewCount} need review before renaming`, 'warning');
-            } else {
-                showMessage('Analysis complete', 'success');
-            }
-            setSelectionModel(finalSortedItems.filter(i => i.status === 'matched').map(i => i.id));
-        } catch (e: any) {
-            showMessage(`Scan failed: ${e.message}`, 'error');
-        } finally {
-            setIsScanning(false);
-        }
-    };
-
-    const handleRenameConfirm = async () => {
-        setConfirmOpen(false);
-        setIsRenaming(true);
-        const selectedItems = items.filter(i => selectionModel.includes(i.id));
+    const rename = useCallback(async () => {
+        if (selectedItems.length === 0) return;
+        setMode('grid');
+        setBusy(`Renaming ${selectedItems.length} file(s)`);
+        dispatch({ type: 'mergeRows', rows: selectedItems.map((item) => ({ ...item, status: 'renaming' as const })) });
         try {
             const results = await renameItems(selectedItems);
-            // Update UI with results
-            const resultsMap = new Map(results.map(i => [i.id, i]));
-            setItems(prev => sortMediaItems(prev.map(item => resultsMap.get(item.id) || item)));
+            dispatch({ type: 'mergeRows', rows: results });
+            const failed = results.filter((item) => item.status === 'error');
+            const renamed = results.length - failed.length;
+            if (renamed > 0) say(`Renamed ${renamed} file(s)`);
+            if (failed.length > 0) say(`${failed.length} file(s) could not be renamed — see the row message`, 'error');
+            // Only the failures stay ticked, so a second attempt cannot re-rename a file
+            // that already moved.
+            dispatch({ type: 'setSelection', ids: failed.map((item) => item.id) });
+        } catch (error) {
+            dispatch({ type: 'mergeRows', rows: selectedItems });
+            say((error as Error).message, 'error');
+        }
+        setBusy(null);
+    }, [say, selectedItems]);
 
-            const successCount = results.filter(i => i.status === 'success').length;
-            if (successCount === selectedItems.length) {
-                showMessage(`Successfully renamed ${successCount} files`, 'success');
-                setSelectionModel([]); // clear selection
-            } else {
-                showMessage(`Renamed ${successCount}/${selectedItems.length} files. Check table for errors.`, 'error');
-                // Keep failed ones selected
-                setSelectionModel(results.filter(i => i.status !== 'success').map(i => i.id));
+    const emptyCache = useCallback(async () => {
+        try {
+            const { cleared } = await clearCache();
+            say(`Cache emptied — ${cleared} entr${cleared === 1 ? 'y' : 'ies'} dropped`);
+            const refreshed = await getConfig().catch(() => null);
+            if (refreshed) setConfig(refreshed);
+        } catch (error) {
+            say((error as Error).message, 'error');
+        }
+    }, [say]);
+
+    const copyCell = useCallback(
+        (text: string) => {
+            navigator.clipboard?.writeText(text).catch(() => say('The browser refused the clipboard', 'error'));
+        },
+        [say]
+    );
+
+    const pasteCell = useCallback(async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (state.focusRowId) dispatch({ type: 'setCell', rowId: state.focusRowId, column: state.focusColumn, text });
+        } catch {
+            say('The browser refused the clipboard — paste inside the cell editor instead', 'error');
+        }
+    }, [say, state.focusColumn, state.focusRowId]);
+
+    const queue = useMemo(() => needsTriage(state.rows), [state.rows]);
+
+    const openTriage = useCallback(
+        (rowId: string | null) => {
+            if (queue.length === 0) {
+                say('Nothing to triage');
+                return;
             }
-        } catch (e: any) {
-            showMessage(`Rename failed: ${e.message}`, 'error');
-        } finally {
-            setIsRenaming(false);
-        }
-    };
+            setTriageStart(rowId);
+            setMode('triage');
+        },
+        [queue.length, say]
+    );
 
-    const handleReAnalyze = async () => {
-        const selectedItems = items.filter(i => selectionModel.includes(i.id));
-        if (selectedItems.length === 0) return;
+    const counts: Counts = useMemo(
+        () => ({
+            total: state.rows.length,
+            matched: state.rows.filter((row) => row.status === 'matched').length,
+            review: state.rows.filter((row) => row.status === 'review').length,
+            error: state.rows.filter((row) => row.status === 'error').length,
+            selected: state.selected.size
+        }),
+        [state.rows, state.selected]
+    );
 
-        setIsReanalyzing(true);
-        showMessage(`Re-analyzing ${selectedItems.length} items with overrides...`, 'info');
+    const commands: Command[] = useMemo(
+        () => [
+            { id: 'scan', label: 'Scan the directory', chord: 'mod+r', run: () => void scan() },
+            {
+                id: 'analyze',
+                label: 'Analyze every file',
+                run: () => void analyze(state.rows),
+                disabled: state.rows.length === 0
+            },
+            {
+                id: 'analyze-pending',
+                label: 'Analyze only the files with no proposal yet',
+                run: () => void analyze(state.rows.filter((row) => row.status === 'pending')),
+                disabled: !state.rows.some((row) => row.status === 'pending')
+            },
+            {
+                id: 'triage',
+                label: 'Triage the unsettled files',
+                chord: 'mod+t',
+                run: () => openTriage(null),
+                disabled: queue.length === 0
+            },
+            {
+                id: 'rename',
+                label: `Rename the ${counts.selected} ticked file(s)`,
+                chord: 'mod+enter',
+                run: () => setMode('confirm'),
+                disabled: counts.selected === 0
+            },
+            {
+                id: 'select-matched',
+                label: 'Tick every confident match',
+                run: () =>
+                    dispatch({
+                        type: 'setSelection',
+                        ids: state.rows.filter((row) => row.status === 'matched').map((row) => row.id)
+                    })
+            },
+            {
+                id: 'clear-selection',
+                label: 'Untick everything',
+                run: () => dispatch({ type: 'clearSelection' }),
+                disabled: counts.selected === 0
+            },
+            {
+                id: 'focus-title',
+                label: 'Jump to the Title column',
+                run: () =>
+                    state.focusRowId &&
+                    dispatch({ type: 'focusCell', rowId: state.focusRowId, column: columnIndex('clean_title') })
+            },
+            { id: 'settings', label: 'Settings', chord: 'mod+,', run: () => setMode('settings') },
+            { id: 'cache', label: 'Empty the API cache', run: () => void emptyCache() },
+            { id: 'keymap', label: 'Keyboard shortcuts', chord: 'mod+/', run: () => setMode('keymap') }
+        ],
+        [analyze, counts.selected, emptyCache, openTriage, queue.length, scan, state.focusRowId, state.rows]
+    );
 
-        let errorCount = 0;
-
-        const langStr = langPins.filter(p => p.code).map(p => p.code).join(',');
-
-        // Set selected items to pending immediately for visual feedback
-        setItems(prev => prev.map(item =>
-            selectionModel.includes(item.id)
-                ? { ...item, status: 'pending', message: undefined }
-                : item
-        ));
-
-        const analyzePromises = selectedItems.map(async (selectedItem) => {
-            try {
-                const analyzed = await analyzeItem(selectedItem, bypassCache, langStr);
-                setItems(prev => {
-                    const next = [...prev];
-                    const idx = next.findIndex(x => x.id === selectedItem.id);
-                    if (idx !== -1) next[idx] = analyzed;
-                    return next;
-                });
-            } catch (e: any) {
-                errorCount++;
-                setItems(prev => {
-                    const next = [...prev];
-                    const idx = next.findIndex(x => x.id === selectedItem.id);
-                    if (idx !== -1) {
-                        next[idx].status = 'error';
-                        next[idx].message = 'Re-analysis failed';
-                    }
-                    return next;
-                });
+    // Global chords: the ones that have to work wherever focus happens to be. Everything
+    // unmodified belongs to the grid, which is what keeps typing into a cell unambiguous.
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (matchesChord(event, 'mod+k')) {
+                event.preventDefault();
+                setMode((current) => (current === 'palette' ? 'grid' : 'palette'));
+            } else if (matchesChord(event, 'mod+enter')) {
+                event.preventDefault();
+                if (counts.selected > 0) setMode('confirm');
+            } else if (matchesChord(event, 'mod+r')) {
+                event.preventDefault();
+                void scan();
+            } else if (matchesChord(event, 'mod+t')) {
+                event.preventDefault();
+                openTriage(null);
+            } else if (matchesChord(event, 'mod+,')) {
+                event.preventDefault();
+                setMode('settings');
+            } else if (matchesChord(event, 'mod+/')) {
+                event.preventDefault();
+                setMode('keymap');
             }
-        });
-
-        await Promise.all(analyzePromises);
-
-        setIsReanalyzing(false);
-        if (errorCount === 0) {
-            showMessage(`Successfully re-analyzed ${selectedItems.length} items.`, 'success');
-        } else {
-            showMessage(`Re-analyzed ${selectedItems.length} items. ${errorCount} errors occurred.`, 'warning');
-        }
-    };
-
-    const processRowUpdate = (newRow: MediaItem, oldRow: MediaItem) => {
-        // Find what changed
-        const updated = { ...oldRow, ...newRow };
-        // We only mark status = pending if something actually changed that requires re-analysis
-        // We removed the hardcoded "Manually modified" message behavior per request
-        if (
-            newRow.clean_title !== oldRow.clean_title ||
-            newRow.media_type !== oldRow.media_type ||
-            newRow.year !== oldRow.year ||
-            newRow.season !== oldRow.season ||
-            newRow.episode !== oldRow.episode
-        ) {
-            updated.status = 'pending';
-            // We drop the explicit message so it merges cleanly with status chip logic later
-            updated.message = '';
-        }
-
-        setItems(prev => prev.map(i => i.id === updated.id ? updated : i));
-        return updated;
-    };
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [counts.selected, openTriage, scan]);
 
     return (
-        <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', p: { xs: 2, md: 4 } }}>
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 2, position: 'relative' }}>
-                    <Box sx={{ position: 'absolute', left: 0, display: 'flex', alignItems: 'center', pl: 2 }}>
-                        <Typography variant="body2" color="text.secondary" fontWeight="bold" sx={{ opacity: 0.7 }}>
-                            v1.9.0
-                        </Typography>
-                    </Box>
-                    <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: "easeOut" }}>
-                        <Typography variant="h3" component="h1" align="center" sx={{ mb: 0 }}>
-                            Project: Atlas - File Manager
-                        </Typography>
-                    </motion.div>
-                    <Box sx={{ position: 'absolute', right: 0, display: 'flex', alignItems: 'center', pr: 2 }}>
-                        <Stack spacing={2} direction="row" sx={{ mb: 1, alignItems: 'center', width: 100 }}>
-                            <Brightness7Icon
-                                fontSize="small"
-                                color={!isDark ? 'primary' : 'action'}
-                                onClick={() => setThemeMode('light')}
-                                sx={{ cursor: 'pointer', '&:hover': { color: 'primary.main' } }}
-                            />
-                            <Slider
-                                value={isDark ? 1 : 0}
-                                min={0}
-                                max={1}
-                                step={1}
-                                track={false}
-                                onChange={(_, val) => {
-                                    setThemeMode(val === 0 ? 'light' : 'dark');
-                                }}
-                                sx={{
-                                    height: 8,
-                                    '& .MuiSlider-thumb': {
-                                        width: 16,
-                                        height: 16,
-                                    },
-                                    '& .MuiSlider-rail': {
-                                        opacity: 0.5,
-                                    }
-                                }}
-                            />
-                            <Brightness4Icon
-                                fontSize="small"
-                                color={isDark ? 'primary' : 'action'}
-                                onClick={() => setThemeMode('dark')}
-                                sx={{ cursor: 'pointer', '&:hover': { color: 'primary.main' } }}
-                            />
-                        </Stack>
-                    </Box>
-                </Box>
+        <div className="app">
+            <CommandBar
+                directory={settings.directory}
+                onDirectoryChange={(directory) => setSettings((current) => ({ ...current, directory }))}
+                busy={busy}
+                counts={counts}
+                onScan={() => void scan()}
+                onAnalyze={() => void analyze(state.rows)}
+                onTriage={() => openTriage(null)}
+                onRename={() => setMode('confirm')}
+                onSettings={() => setMode('settings')}
+                onKeymap={() => setMode('keymap')}
+            />
 
-                <ActionHeader
-                    directory={directory} setDirectory={setDirectory}
-                    bypassCache={bypassCache} setBypassCache={setBypassCache}
-                    langPins={langPins} setLangPins={setLangPins}
-                    onScan={handleScan}
-                    onRename={() => setConfirmOpen(true)}
-                    onReAnalyze={handleReAnalyze}
-                    onRestoreSort={handleRestoreSort}
-                    onClear={() => setItems([])}
-                    hasItems={items.length > 0}
-                    isScanning={isScanning}
-                    isReanalyzing={isReanalyzing}
-                    isRenaming={isRenaming}
-                    selectedCount={selectionModel.length}
-                />
-
-                <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-                    <MediaTable
-                        items={items}
-                        selectionModel={selectionModel}
-                        onSelectionModelChange={setSelectionModel}
-                        processRowUpdate={processRowUpdate}
-                        showMessage={showMessage}
+            <main className="stage">
+                {state.rows.length === 0 && busy === null ? (
+                    <div className="empty">
+                        <p className="empty-title">Nothing scanned yet</p>
+                        <p className="empty-hint">
+                            Point the bar at a directory inside{' '}
+                            <span className="mono">{config ? config.media_roots.join(' or ') : 'the media root'}</span> and
+                            press <kbd>Enter</kbd>.
+                        </p>
+                    </div>
+                ) : (
+                    <Grid
+                        state={state}
+                        dispatch={dispatch}
+                        onOpenTriage={openTriage}
+                        onCopy={copyCell}
+                        onPaste={() => void pasteCell()}
                     />
-                </Box>
+                )}
+            </main>
 
-                <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-                    <DialogTitle>Confirm Mass Rename</DialogTitle>
-                    <DialogContent>
-                        <DialogContentText>
-                            Are you sure you want to rename {selectionModel.length} files? This will alter the filesystem directly.
-                        </DialogContentText>
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
-                        <Button onClick={handleRenameConfirm} variant="contained" color="secondary" autoFocus>
-                            Execute Rename
-                        </Button>
-                    </DialogActions>
-                </Dialog>
+            {mode === 'triage' && (
+                <TriageOverlay
+                    rows={state.rows}
+                    queue={queue}
+                    startId={triageStart}
+                    onPick={(items, candidate) => void applyPick(items, candidate)}
+                    onSkip={() => undefined}
+                    onClose={() => setMode('grid')}
+                />
+            )}
+            {mode === 'settings' && (
+                <SettingsPanel
+                    settings={settings}
+                    config={config}
+                    onApply={applySettings}
+                    onClearCache={() => void emptyCache()}
+                    onClose={() => setMode('grid')}
+                />
+            )}
+            {mode === 'keymap' && <KeymapOverlay onClose={() => setMode('grid')} />}
+            {mode === 'palette' && <CommandPalette commands={commands} onClose={() => setMode('grid')} />}
+            {mode === 'confirm' && (
+                <ConfirmRename items={selectedItems} onConfirm={() => void rename()} onCancel={() => setMode('grid')} />
+            )}
 
-                <Snackbar
-                    open={snackbar.open}
-                    autoHideDuration={6000}
-                    onClose={() => setSnackbar({ ...snackbar, open: false })}
-                    anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-                >
-                    <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%' }}>
-                        {snackbar.message}
-                    </Alert>
-                </Snackbar>
+            <Toasts toasts={toasts} onDismiss={dismiss} />
+        </div>
+    );
+};
 
-            </Box>
-        </ThemeProvider>
-    )
-}
-
-export default App
+export default App;

@@ -1,0 +1,55 @@
+/*
+ * Atlas Console Dark — the design tokens, and the only place a raw colour is written.
+ *
+ * The shape language is deliberately squared: 3px corners, no pill anywhere. The
+ * only circles in the product are the status dots, which is what makes a dot read
+ * as a dot rather than as one more rounded chip.
+ */
+
+:root {
+    /* Surfaces, darkest first. Depth is carried by these four steps and by the
+       hairline, never by a shadow — shadows read as "app", not as "console". */
+    --console-black: #0e0f11;
+    --panel-charcoal: #16171a;
+    --raised-slate: #1d1f23;
+    --raised-slate-hi: #23262b;
+    --hairline: #2a2d33;
+
+    --bone: #e8e9eb;
+    --muted-steel: #8a8f98;
+    --dim-steel: #5c626b;
+
+    /* Signal amber is the single accent: focus, selection, the active row marker.
+       Nothing else is amber, so amber always means "the thing you are acting on". */
+    --signal-amber: #d8a13a;
+    --signal-amber-dim: rgba(216, 161, 58, 0.16);
+
+    /* Status hues. Each is paired with a distinct dot *fill* in StatusDot, so the
+       state never depends on colour alone. */
+    --verify-teal: #5aa9a0;
+    --caution-ochre: #c9873f;
+    --fault-rust: #c4544b;
+
+    --font-body: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
+
+    /* A real scale rather than three sizes: the grid is dense, so the difference
+       between a label and a value has to be carried by 1px steps. */
+    --text-11: 11px;
+    --text-12: 12px;
+    --text-13: 13px;
+    --text-14: 14px;
+    --text-15: 15px;
+    --text-18: 18px;
+
+    --radius: 3px;
+    --row-height: 30px;
+    --header-height: 44px;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+}
