@@ -2,8 +2,9 @@ services:
   plex-file-manager:
     build: .
     container_name: plex-file-manager
+    # Published on 8080; the app inside the container always listens on 8000.
     ports:
-      - "${PORT:-8000}:8000"
+      - "${PORT:-8080}:8000"
     environment:
       - TMDB_API_KEY=${TMDB_API_KEY}
       - TVDB_API_KEY=${TVDB_API_KEY}
