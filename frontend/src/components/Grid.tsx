@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MediaItem } from '../api';
-import { cellText, COLUMNS, ColumnId } from '../lib/columns';
+import { cellText, COLUMNS, ColumnId, confidenceText } from '../lib/columns';
 import { GridAction, GridState, rowIndexOf } from '../lib/gridReducer';
 import { isTypingKey, matchesChord } from '../lib/keymap';
 import { isEpisodeValid, isRowValid, isSeasonValid, isYearValid } from '../lib/validation';
@@ -35,7 +35,8 @@ const cellIsInvalid = (item: MediaItem, column: ColumnId): boolean => {
     return false;
 };
 
-const ROW_HEIGHT = 30;
+/** Kept in step with `--row-height` in styles/tokens.css. */
+const ROW_HEIGHT = 36;
 const PAGE = 20;
 
 const helper = createColumnHelper<MediaItem>();
@@ -300,8 +301,8 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
                                                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                                 </span>
                                             )}
-                                            {spec.id === 'proposed_name' && !edit && item.confidence !== undefined && (
-                                                <span className="confidence mono">{item.confidence.toFixed(2)}</span>
+                                            {spec.id === 'proposed_name' && !edit && confidenceText(item) && (
+                                                <span className="confidence mono">{confidenceText(item)}</span>
                                             )}
                                         </div>
                                     );

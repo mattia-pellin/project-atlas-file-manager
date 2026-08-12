@@ -28,7 +28,9 @@ export const ConfirmRename: React.FC<ConfirmProps> = ({ items, onConfirm, onCanc
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [onCancel]);
 
-    const risky = items.filter((item) => item.status === 'review' || item.confidence === undefined);
+    // `== null` on purpose: an unscored row arrives as `confidence: null`, and a
+    // `=== undefined` test would call it safe.
+    const risky = items.filter((item) => item.status === 'review' || item.confidence == null);
 
     return (
         <div className="scrim" onMouseDown={onCancel}>

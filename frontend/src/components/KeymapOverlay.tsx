@@ -36,6 +36,12 @@ export const KeymapOverlay: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                                     <div key={`${group.title}-${shortcut.chord}`} className="keymap-row">
                                         <dt>
                                             <kbd>{formatChord(shortcut.chord)}</kbd>
+                                            {shortcut.also && (
+                                                <>
+                                                    <span className="keymap-or">or</span>
+                                                    <kbd>{formatChord(shortcut.also)}</kbd>
+                                                </>
+                                            )}
                                         </dt>
                                         <dd>{shortcut.what}</dd>
                                     </div>

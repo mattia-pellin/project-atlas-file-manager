@@ -15,6 +15,7 @@ import { ConfirmRename } from './components/ConfirmRename';
 import { Grid } from './components/Grid';
 import { KeymapOverlay } from './components/KeymapOverlay';
 import { SettingsPanel } from './components/SettingsPanel';
+import { Mode, StatusBar } from './components/StatusBar';
 import { Toast, Toasts } from './components/Toasts';
 import { TriageOverlay } from './components/TriageOverlay';
 import { columnIndex } from './lib/columns';
@@ -22,6 +23,7 @@ import { gridReducer, initialGridState } from './lib/gridReducer';
 import { matchesChord } from './lib/keymap';
 import { runPool } from './lib/pool';
 import { needsTriage } from './lib/series';
+import { SCAN_CHORDS } from './lib/shortcuts';
 import { hasStoredSettings, readStoredSettings, saveSettings, Settings, settingsFromConfig } from './lib/settings';
 import './styles/app.css';
 
@@ -34,8 +36,6 @@ import './styles/app.css';
  */
 
 const ANALYZE_CONCURRENCY = 6;
-
-type Mode = 'grid' | 'triage' | 'settings' | 'keymap' | 'palette' | 'confirm';
 
 const App: React.FC = () => {
     const [state, dispatch] = useReducer(gridReducer, undefined, () => initialGridState([]));
@@ -267,7 +267,12 @@ const App: React.FC = () => {
 
     const commands: Command[] = useMemo(
         () => [
-            { id: 'scan', label: 'Rescan the directory and match it again', chord: 'mod+r', run: () => void scan() },
+            {
+                id: 'scan',
+                label: 'Rescan the directory and match it again',
+                chord: SCAN_CHORDS[0],
+                run: () => void scan()
+            },
             {
                 id: 'triage',
                 label: 'Triage the unsettled files',
@@ -321,7 +326,9 @@ const App: React.FC = () => {
             } else if (matchesChord(event, 'mod+enter')) {
                 event.preventDefault();
                 if (counts.selected > 0) setMode('confirm');
-            } else if (matchesChord(event, 'mod+r')) {
+            } else if (SCAN_CHORDS.some((chord) => matchesChord(event, chord))) {
+                // Ctrl+R is the second of the two: preventing the browser's reload works,
+                // but only while this handler is the one that sees the key.
                 event.preventDefault();
                 void scan();
             } else if (matchesChord(event, 'mod+t')) {
@@ -373,6 +380,8 @@ const App: React.FC = () => {
                     />
                 )}
             </main>
+
+            <StatusBar counts={counts} directory={settings.directory} mode={mode} />
 
             {mode === 'triage' && (
                 <TriageOverlay

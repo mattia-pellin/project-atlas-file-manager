@@ -34,17 +34,28 @@
     --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
 
     /* A real scale rather than three sizes: the grid is dense, so the difference
-       between a label and a value has to be carried by 1px steps. */
-    --text-11: 11px;
-    --text-12: 12px;
-    --text-13: 13px;
-    --text-14: 14px;
-    --text-15: 15px;
-    --text-18: 18px;
+       between a label and a value has to be carried by small steps.
+
+       The whole scale sits two pixels above where it started, and the row and control
+       heights grew with it. Dense is the point of this tool, but the first build was
+       dense enough to be tiring to read, and a console you have to squint at is slower
+       than one you don't. The names are relative on purpose now: the previous ones
+       were the pixel values, so a rescale made every one of them a lie. */
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-md: 15px;
+    --text-lg: 17px;
+    --text-xl: 19px;
+    --text-2xl: 22px;
 
     --radius: 3px;
-    --row-height: 30px;
-    --header-height: 44px;
+    /* Kept in step with ROW_HEIGHT in components/Grid.tsx — the virtualizer measures
+       rows in JS, so if the two disagree the canvas and the rows drift apart. */
+    --row-height: 36px;
+    --head-height: 32px;
+    --header-height: 52px;
+    --status-height: 30px;
+    --control-height: 32px;
 
     --space-1: 4px;
     --space-2: 8px;

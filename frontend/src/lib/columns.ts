@@ -46,6 +46,16 @@ export const cellText = (item: MediaItem, column: ColumnId): string => {
 };
 
 /**
+ * The confidence, as the two decimals the grid prints — or nothing.
+ *
+ * A pure function rather than an expression in the cell, because the null it has to
+ * survive is exactly what crashed the grid: an unanalyzed row carries
+ * `confidence: null`, and `null.toFixed(2)` throws mid-render.
+ */
+export const confidenceText = (item: MediaItem): string | null =>
+    typeof item.confidence === 'number' ? item.confidence.toFixed(2) : null;
+
+/**
  * Turns typed text back into a field value.
  *
  * Numbers stay numbers so the backend does not have to guess, but a *non-numeric*

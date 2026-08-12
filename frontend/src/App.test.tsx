@@ -17,10 +17,25 @@ describe('App', () => {
         vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)));
         const html = renderToString(<App />);
 
-        expect(html).toContain('atlas');
+        expect(html).toContain('Project:');
+        expect(html).toContain('Atlas');
+        expect(html).toContain('Files');
         expect(html).toContain('Nothing scanned yet');
     });
+
+    it('shows the counts and the keys for the current mode in the status bar', () => {
+        vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)));
+        const html = renderToString(<App />);
+
+        expect(html).toContain('status-counts');
+        expect(html).toContain('0 files');
+        expect(html).toContain('fill down');
+    });
 });
+
+// The rows themselves are covered in components/Grid.test.tsx, which needs a real DOM:
+// `renderToString` gives the virtualizer no scroll element, so it emits no rows at all
+// and a row-level crash renders as a pass.
 
 describe('ConfirmRename', () => {
     const item = (overrides: Partial<MediaItem> = {}): MediaItem => ({

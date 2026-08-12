@@ -9,8 +9,21 @@ import { Chord } from './keymap';
 
 export interface Shortcut {
     chord: Chord;
+    /** A second chord that does the same thing. Rendered next to the first. */
+    also?: Chord;
     what: string;
 }
+
+/**
+ * Scan, twice.
+ *
+ * `Ctrl+R` is the chord everyone reaches for and it is the one the browser reloads
+ * on; a page that only calls `preventDefault()` is betting on the browser letting it,
+ * and when it loses the user gets a reload instead of a rescan. `Ctrl+Shift+S` is
+ * claimed by nobody, so it is the one that is documented first — but `Ctrl+R` stays
+ * bound, because a reload here costs nothing and a rescan is what was meant.
+ */
+export const SCAN_CHORDS: readonly [Chord, Chord] = ['mod+shift+s', 'mod+r'];
 
 export interface ShortcutGroup {
     title: string;
@@ -60,7 +73,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
         shortcuts: [
             { chord: 'mod+k', what: 'Command palette' },
             { chord: 'mod+enter', what: 'Rename the selected rows' },
-            { chord: 'mod+r', what: 'Scan the directory' },
+            { chord: SCAN_CHORDS[0], also: SCAN_CHORDS[1], what: 'Scan the directory and match it again' },
             { chord: 'mod+t', what: 'Triage everything the scoring could not settle' },
             { chord: 'mod+,', what: 'Settings' },
             { chord: 'mod+/', what: 'This list' }

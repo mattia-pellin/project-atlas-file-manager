@@ -1,14 +1,25 @@
+/**
+ * Every optional field is `| null`, not just `?`.
+ *
+ * pydantic serialises `float | None = None` as an explicit `null`, so a field the
+ * backend has not filled in arrives as `null` and never as `undefined`. Typing it as
+ * `?: number` reads as safe and is not: `item.confidence !== undefined` passes on a
+ * `null`, and the next `.toFixed(2)` throws inside a render, which unmounts the whole
+ * tree and leaves a black screen. That was a real bug — the grid crashed on the first
+ * scan, before anything had been analyzed. Keep the nulls in the type and let
+ * `strict` find the unsafe reads.
+ */
 export interface CandidateOut {
     /** Stringified: TMDB ids are numbers and TVDB's are strings. Send it back as `forcedKey`. */
     key: string;
     label: string;
     source: 'tmdb' | 'tvdb';
-    year?: number;
+    year?: number | null;
     score: number;
     title_score: number;
     year_factor: number;
-    poster_url?: string;
-    overview?: string;
+    poster_url?: string | null;
+    overview?: string | null;
     /** The candidate the proposed name was actually built from. */
     selected: boolean;
 }
@@ -19,20 +30,20 @@ export interface MediaItem {
     original_name: string;
     media_type: string;
     clean_title: string;
-    year?: number;
-    season?: number;
-    episode?: number | string;
-    episode_title?: string;
-    proposed_name?: string;
-    tmdb_id?: number;
-    tvdb_id?: number;
+    year?: number | null;
+    season?: number | null;
+    episode?: number | string | null;
+    episode_title?: string | null;
+    proposed_name?: string | null;
+    tmdb_id?: number | null;
+    tvdb_id?: number | null;
     // 'review' is a match the backend scored but does not trust. The name is
     // proposed and editable, but the row is deliberately not auto-selected.
     status: 'pending' | 'matched' | 'review' | 'renaming' | 'error' | 'success';
-    confidence?: number;
-    message?: string;
+    confidence?: number | null;
+    message?: string | null;
     /** Every candidate that was scored, best first. Empty until the row is analyzed. */
-    candidates?: CandidateOut[];
+    candidates?: CandidateOut[] | null;
 }
 
 export interface AppConfig {

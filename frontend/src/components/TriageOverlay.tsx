@@ -141,7 +141,7 @@ export const TriageOverlay: React.FC<TriageProps> = ({ rows, queue, startId, onP
                             <span className="candidate-body">
                                 <span className="candidate-label">
                                     {candidate.label}
-                                    {candidate.year !== undefined && <span className="candidate-year mono"> {candidate.year}</span>}
+                                    {candidate.year != null && <span className="candidate-year mono"> {candidate.year}</span>}
                                 </span>
                                 {candidate.overview && <span className="candidate-overview">{candidate.overview}</span>}
                             </span>

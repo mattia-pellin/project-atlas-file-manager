@@ -25,7 +25,7 @@ body {
     background: var(--console-black);
     color: var(--bone);
     font-family: var(--font-body);
-    font-size: var(--text-13);
+    font-size: var(--text-md);
     -webkit-font-smoothing: antialiased;
 }
 
@@ -43,7 +43,7 @@ kbd {
     background: var(--raised-slate);
     color: var(--muted-steel);
     font-family: var(--font-mono);
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     line-height: 1.5;
 }
 
@@ -68,18 +68,29 @@ kbd {
 
 .brand {
     display: flex;
-    align-items: baseline;
-    gap: 3px;
-    font-size: var(--text-14);
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    font-size: var(--text-md);
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.02em;
     color: var(--bone);
-    text-transform: lowercase;
+    white-space: nowrap;
+}
+
+.brand-prefix {
+    color: var(--muted-steel);
+    font-weight: 400;
+}
+
+.brand-dash {
+    color: var(--dim-steel);
 }
 
 .brand-dot {
-    width: 5px;
-    height: 5px;
+    width: 6px;
+    height: 6px;
+    margin-right: 2px;
     border-radius: 50%;
     background: var(--signal-amber);
 }
@@ -94,13 +105,13 @@ kbd {
 
 .input {
     width: 100%;
-    height: 26px;
+    height: var(--control-height);
     padding: 0 var(--space-2);
     border: 1px solid var(--hairline);
     border-radius: var(--radius);
     background: var(--console-black);
     color: var(--bone);
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
     font-family: inherit;
 }
 
@@ -109,29 +120,13 @@ kbd {
     border-color: var(--signal-amber);
 }
 
-.bar-counts {
+.bar-busy {
     display: flex;
     align-items: center;
-    gap: var(--space-3);
-    font-size: var(--text-12);
-    color: var(--muted-steel);
+    min-width: 0;
+    font-size: var(--text-sm);
     white-space: nowrap;
-}
-
-.count .mono {
-    color: var(--bone);
-}
-
-.count.is-matched .mono {
-    color: var(--verify-teal);
-}
-
-.count.is-review .mono {
-    color: var(--caution-ochre);
-}
-
-.count.is-error .mono {
-    color: var(--fault-rust);
+    overflow: hidden;
 }
 
 .busy {
@@ -146,16 +141,35 @@ kbd {
 }
 
 .button {
-    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--control-height);
     padding: 0 var(--space-3);
     border: 1px solid var(--hairline);
     border-radius: var(--radius);
     background: var(--raised-slate);
     color: var(--bone);
     font-family: inherit;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
     cursor: pointer;
     white-space: nowrap;
+}
+
+/* Every button carries its chord, which is the whole premise of the interface. The
+   chip is dimmed against the button it sits on so it labels the action instead of
+   competing with it. */
+.button kbd {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.25);
+}
+
+.button.primary kbd {
+    color: var(--signal-amber);
+}
+
+.button:disabled kbd {
+    color: var(--dim-steel);
 }
 
 .button:hover:not(:disabled) {
@@ -191,14 +205,14 @@ kbd {
     border-radius: var(--radius);
     background: var(--caution-ochre);
     color: var(--console-black);
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
 }
 
 .icon-button {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: var(--control-height);
+    height: var(--control-height);
     border: 1px solid transparent;
     border-radius: var(--radius);
     background: transparent;
@@ -226,14 +240,136 @@ kbd {
 }
 
 .empty-title {
-    font-size: var(--text-15);
+    font-size: var(--text-xl);
     color: var(--bone);
     margin: 0 0 var(--space-2);
 }
 
 .empty-hint {
     margin: 0;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
+}
+
+/* ---------------------------------------------------------------- status bar */
+
+/*
+ * The third band of the shell: counts, the keys that work in the current mode, and
+ * the directory. One line, monospace, and never taller than 30px — it is a readout,
+ * not a toolbar, and nothing in it is clickable.
+ */
+.status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    height: var(--status-height);
+    padding: 0 var(--space-3);
+    border-top: 1px solid var(--hairline);
+    background: var(--raised-slate);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--muted-steel);
+    white-space: nowrap;
+    flex: 0 0 auto;
+    z-index: 25;
+}
+
+.status-counts {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.status-sep {
+    color: var(--dim-steel);
+}
+
+.status-counts .is-selected {
+    color: var(--signal-amber);
+}
+
+.status-counts .is-matched {
+    color: var(--verify-teal);
+}
+
+.status-counts .is-review {
+    color: var(--caution-ochre);
+}
+
+.status-counts .is-error {
+    color: var(--fault-rust);
+}
+
+.status-rule {
+    width: 1px;
+    height: 14px;
+    background: var(--hairline);
+    flex: 0 0 auto;
+}
+
+.status-hints {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+    overflow: hidden;
+}
+
+.status-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--dim-steel);
+}
+
+.status-path {
+    margin-left: auto;
+    padding-left: var(--space-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 34ch;
+    color: var(--muted-steel);
+}
+
+/* -------------------------------------------------------------------- crash */
+
+.crash {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: var(--space-3);
+    height: 100%;
+    max-width: 620px;
+    margin: 0 auto;
+    padding: var(--space-6);
+    text-align: center;
+}
+
+.crash-title {
+    margin: 0;
+    font-size: var(--text-xl);
+    color: var(--bone);
+}
+
+.crash-hint {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--muted-steel);
+}
+
+.crash-detail {
+    margin: 0;
+    padding: var(--space-3);
+    width: 100%;
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--fault-rust);
+    border-radius: var(--radius);
+    background: var(--panel-charcoal);
+    color: var(--fault-rust);
+    font-size: var(--text-sm);
+    text-align: left;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
 }
 
 /* ---------------------------------------------------------------------- grid */
@@ -253,7 +389,7 @@ kbd {
 }
 
 .grid-head {
-    height: 26px;
+    height: var(--head-height);
     border-bottom: 1px solid var(--hairline);
     background: var(--panel-charcoal);
     position: sticky;
@@ -263,7 +399,7 @@ kbd {
 
 .grid-head-cell {
     padding: 0 var(--space-2);
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     font-weight: 500;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -318,7 +454,7 @@ kbd {
     padding: 0 var(--space-2);
     border-right: 1px solid transparent;
     overflow: hidden;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 .grid-cell.align-right {
@@ -347,7 +483,7 @@ kbd {
 .confidence {
     margin-left: auto;
     padding-left: var(--space-2);
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     color: var(--dim-steel);
 }
 
@@ -360,7 +496,7 @@ kbd {
     background: var(--console-black);
     color: var(--bone);
     font-family: inherit;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
     outline: none;
 }
 
@@ -397,6 +533,9 @@ kbd {
     align-items: center;
     justify-content: center;
     padding: var(--space-6);
+    /* The status bar sits above the scrim on purpose — it is what tells you Esc goes
+       back — so no panel may reach under it. */
+    padding-bottom: calc(var(--space-6) + var(--status-height));
     background: rgba(8, 9, 10, 0.72);
 }
 
@@ -426,7 +565,7 @@ kbd {
 
 .panel-head h2 {
     margin: 0;
-    font-size: var(--text-14);
+    font-size: var(--text-lg);
     font-weight: 600;
 }
 
@@ -457,7 +596,7 @@ kbd {
 
 .field-group h3 {
     margin: 0 0 var(--space-3);
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     font-weight: 500;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -474,7 +613,7 @@ kbd {
     display: flex;
     align-items: baseline;
     gap: var(--space-2);
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 .field-label strong {
@@ -484,13 +623,13 @@ kbd {
 
 .field-hint,
 .apply-count {
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     color: var(--dim-steel);
 }
 
 .field-error {
     margin: 0;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
     color: var(--fault-rust);
 }
 
@@ -499,7 +638,7 @@ kbd {
     align-items: center;
     gap: var(--space-2);
     margin-bottom: var(--space-2);
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 input[type='checkbox'] {
@@ -519,13 +658,13 @@ input[type='range'] {
 }
 
 .readout dt {
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     color: var(--dim-steel);
 }
 
 .readout dd {
     margin: 2px 0 0;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 /* -------------------------------------------------------------------- keymap */
@@ -544,7 +683,7 @@ input[type='range'] {
 
 .keymap-groups h3 {
     margin: 0 0 var(--space-2);
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--dim-steel);
@@ -554,9 +693,15 @@ input[type='range'] {
     margin: 0;
 }
 
+.keymap-or {
+    margin: 0 4px;
+    font-size: var(--text-xs);
+    color: var(--dim-steel);
+}
+
 .keymap-row {
     display: grid;
-    grid-template-columns: 96px 1fr;
+    grid-template-columns: 150px 1fr;
     gap: var(--space-2);
     align-items: baseline;
     padding: 2px 0;
@@ -564,7 +709,7 @@ input[type='range'] {
 
 .keymap-row dd {
     margin: 0;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
     color: var(--muted-steel);
 }
 
@@ -583,7 +728,7 @@ input[type='range'] {
     background: transparent;
     color: var(--bone);
     font-family: inherit;
-    font-size: var(--text-14);
+    font-size: var(--text-lg);
     outline: none;
 }
 
@@ -605,7 +750,7 @@ input[type='range'] {
     background: transparent;
     color: var(--bone);
     font-family: inherit;
-    font-size: var(--text-13);
+    font-size: var(--text-md);
     text-align: left;
     cursor: pointer;
 }
@@ -622,14 +767,16 @@ input[type='range'] {
 .palette-empty {
     padding: var(--space-3);
     color: var(--dim-steel);
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 /* -------------------------------------------------------------------- triage */
 
 .triage {
     position: fixed;
-    inset: var(--header-height) 0 0 0;
+    /* Stops above the status bar rather than covering it: triage is the mode whose
+       contextual keys the footer is most needed for. */
+    inset: var(--header-height) 0 var(--status-height) 0;
     z-index: 15;
     display: flex;
     flex-direction: column;
@@ -647,7 +794,7 @@ input[type='range'] {
 
 .triage-progress {
     color: var(--dim-steel);
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 .triage-file {
@@ -658,14 +805,14 @@ input[type='range'] {
 
 .triage-filename {
     font-family: var(--font-mono);
-    font-size: var(--text-13);
+    font-size: var(--text-md);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .triage-message {
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     color: var(--caution-ochre);
 }
 
@@ -717,7 +864,7 @@ input[type='range'] {
     border: 1px solid var(--hairline);
     border-radius: 2px;
     color: var(--muted-steel);
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
 }
 
 .candidate-poster {
@@ -742,7 +889,7 @@ input[type='range'] {
 }
 
 .candidate-label {
-    font-size: var(--text-13);
+    font-size: var(--text-md);
 }
 
 .candidate-year {
@@ -750,7 +897,7 @@ input[type='range'] {
 }
 
 .candidate-overview {
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     color: var(--muted-steel);
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -764,7 +911,7 @@ input[type='range'] {
     justify-items: end;
     margin-left: auto;
     flex: 0 0 88px;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
     color: var(--muted-steel);
 }
 
@@ -783,7 +930,7 @@ input[type='range'] {
 
 .candidate-none {
     color: var(--muted-steel);
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 .triage-foot {
@@ -799,7 +946,7 @@ input[type='range'] {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
     cursor: pointer;
 }
 
@@ -816,7 +963,7 @@ input[type='range'] {
     display: flex;
     gap: var(--space-4);
     margin-left: auto;
-    font-size: var(--text-11);
+    font-size: var(--text-xs);
     color: var(--dim-steel);
 }
 
@@ -836,7 +983,7 @@ input[type='range'] {
     border-bottom: 1px solid var(--hairline);
     background: rgba(201, 135, 63, 0.1);
     color: var(--caution-ochre);
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 .confirm-list {
@@ -853,7 +1000,7 @@ input[type='range'] {
     grid-template-columns: 1fr 16px 1fr;
     gap: var(--space-2);
     align-items: baseline;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
 }
 
 .confirm-from {
@@ -875,7 +1022,7 @@ input[type='range'] {
 .toasts {
     position: fixed;
     left: var(--space-4);
-    bottom: var(--space-4);
+    bottom: calc(var(--status-height) + var(--space-3));
     z-index: 30;
     display: grid;
     gap: var(--space-2);
@@ -890,7 +1037,7 @@ input[type='range'] {
     background: var(--raised-slate);
     color: var(--bone);
     font-family: inherit;
-    font-size: var(--text-12);
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
 }
