@@ -38,7 +38,7 @@
       "Bash(docker images*)",
       "Bash(docker inspect*)",
       "Bash(docker version*)",
-      "Read(./.env)",
+      "Read(.env)",
       "WebFetch(domain:code.claude.com)",
       "WebFetch(domain:developer.themoviedb.org)",
       "WebFetch(domain:thetvdb.github.io)",
