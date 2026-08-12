@@ -40,6 +40,13 @@ export interface GridState {
     redo: Patch[][];
     /** Set by actions that have something to say; the shell drains it into a toast. */
     notice: string | null;
+    /**
+     * Rows whose inputs were just edited, so the proposal they carried no longer
+     * follows from them. The shell drains this and re-matches exactly these rows —
+     * it is the only re-analysis there is, and it is why there is no "match
+     * everything again" command to overwrite a hand-picked answer with a guess.
+     */
+    staleRowIds: string[];
 }
 
 export type GridAction =
@@ -61,7 +68,8 @@ export type GridAction =
     | { type: 'clearCell' }
     | { type: 'undo' }
     | { type: 'redo' }
-    | { type: 'dismissNotice' };
+    | { type: 'dismissNotice' }
+    | { type: 'clearStale' };
 
 export const initialGridState = (rows: MediaItem[] = []): GridState => ({
     rows,
@@ -72,7 +80,8 @@ export const initialGridState = (rows: MediaItem[] = []): GridState => ({
     anchorRowId: rows[0]?.id ?? null,
     undo: [],
     redo: [],
-    notice: null
+    notice: null,
+    staleRowIds: []
 });
 
 export const rowIndexOf = (state: GridState, id: string | null): number =>
@@ -85,15 +94,27 @@ const clamp = (value: number, min: number, max: number): number => Math.min(Math
 
 const column = (index: number): ColumnSpec | undefined => COLUMNS[index];
 
+const groupById = (patches: Patch[]): Map<string, Patch[]> => {
+    const byId = new Map<string, Patch[]>();
+    for (const patch of patches) byId.set(patch.id, [...(byId.get(patch.id) ?? []), patch]);
+    return byId;
+};
+
+/**
+ * The rows a transaction invalidated, deduplicated.
+ *
+ * Same rule as `patchRow`: touching an input makes the row's proposal stale, touching
+ * `proposed_name` does not. Undo and redo go through here too — reverting a title to
+ * what it was is as much a reason to re-match as changing it was.
+ */
+const staleFrom = (patches: Patch[]): string[] => [
+    ...new Set(patches.filter((patch) => patch.field !== 'proposed_name').map((patch) => patch.id))
+];
+
 /** Applies a transaction and records it, so undo restores every cell it touched at once. */
 const applyPatches = (state: GridState, patches: Patch[], notice: string | null = null): GridState => {
     if (patches.length === 0) return state;
-    const byId = new Map<string, Patch[]>();
-    for (const patch of patches) {
-        const list = byId.get(patch.id) ?? [];
-        list.push(patch);
-        byId.set(patch.id, list);
-    }
+    const byId = groupById(patches);
 
     return {
         ...state,
@@ -103,7 +124,8 @@ const applyPatches = (state: GridState, patches: Patch[], notice: string | null 
         }),
         undo: [...state.undo, patches],
         redo: [],
-        notice
+        notice,
+        staleRowIds: staleFrom(patches)
     };
 };
 
@@ -181,7 +203,8 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
                 // either across a rescan would let a stale tick rename a file nobody looked at.
                 selected: new Set(),
                 undo: [],
-                redo: []
+                redo: [],
+                staleRowIds: []
             };
         }
 
@@ -297,33 +320,36 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
             const last = state.undo[state.undo.length - 1];
             if (!last) return { ...state, notice: 'Nothing to undo' };
             const reverted = invert(last);
-            const byId = new Map<string, Patch[]>();
-            for (const patch of reverted) byId.set(patch.id, [...(byId.get(patch.id) ?? []), patch]);
+            const byId = groupById(reverted);
             return {
                 ...state,
                 rows: state.rows.map((row) => (byId.has(row.id) ? patchRow(row, byId.get(row.id)!) : row)),
                 undo: state.undo.slice(0, -1),
                 redo: [...state.redo, last],
-                notice: null
+                notice: null,
+                staleRowIds: staleFrom(reverted)
             };
         }
 
         case 'redo': {
             const next = state.redo[state.redo.length - 1];
             if (!next) return { ...state, notice: 'Nothing to redo' };
-            const byId = new Map<string, Patch[]>();
-            for (const patch of next) byId.set(patch.id, [...(byId.get(patch.id) ?? []), patch]);
+            const byId = groupById(next);
             return {
                 ...state,
                 rows: state.rows.map((row) => (byId.has(row.id) ? patchRow(row, byId.get(row.id)!) : row)),
                 undo: [...state.undo, next],
                 redo: state.redo.slice(0, -1),
-                notice: null
+                notice: null,
+                staleRowIds: staleFrom(next)
             };
         }
 
         case 'dismissNotice':
             return state.notice === null ? state : { ...state, notice: null };
+
+        case 'clearStale':
+            return state.staleRowIds.length === 0 ? state : { ...state, staleRowIds: [] };
 
         default:
             return state;

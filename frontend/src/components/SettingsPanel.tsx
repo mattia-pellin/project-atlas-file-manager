@@ -132,14 +132,6 @@ export const SettingsPanel: React.FC<SettingsProps> = ({ settings, config, onApp
                         <label className="check">
                             <input
                                 type="checkbox"
-                                checked={draft.analyzeOnScan}
-                                onChange={(event) => set('analyzeOnScan', event.target.checked)}
-                            />
-                            <span>Analyze every file straight after a scan</span>
-                        </label>
-                        <label className="check">
-                            <input
-                                type="checkbox"
                                 checked={draft.autoSelectMatched}
                                 onChange={(event) => set('autoSelectMatched', event.target.checked)}
                             />

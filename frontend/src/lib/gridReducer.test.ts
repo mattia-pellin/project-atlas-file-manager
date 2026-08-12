@@ -141,6 +141,69 @@ describe('editing', () => {
     });
 });
 
+/**
+ * Editing a row is how a match is corrected by hand, so the reducer has to say which
+ * rows the shell must ask the API about again. There is no bulk re-match command to
+ * fall back on: get this wrong and a corrected title keeps the name it contradicts.
+ */
+describe('re-matching', () => {
+    it('marks the row stale when an input changes', () => {
+        const state = run(
+            initialGridState([row()]),
+            { type: 'focusCell', rowId: '1', column: TITLE },
+            { type: 'beginEdit', initial: 'Breaking Bad' },
+            { type: 'commitEdit' }
+        );
+        expect(state.staleRowIds).toEqual(['1']);
+    });
+
+    it('does not, when the name is written by hand', () => {
+        const state = run(
+            initialGridState([row()]),
+            { type: 'focusCell', rowId: '1', column: PROPOSED },
+            { type: 'beginEdit', initial: 'Show - S01E01 - Pilot.mkv' },
+            { type: 'commitEdit' }
+        );
+        expect(state.staleRowIds).toEqual([]);
+    });
+
+    it('marks every row a fill-down touched, once each', () => {
+        const state = run(
+            initialGridState(season(3)),
+            { type: 'selectAll' },
+            { type: 'focusCell', rowId: '1', column: TITLE },
+            { type: 'beginEdit', initial: 'Breaking Bad' },
+            { type: 'commitEdit' },
+            { type: 'fillDown' }
+        );
+        expect(state.staleRowIds).toEqual(['2', '3']);
+    });
+
+    it('marks the row again when the edit is undone — the old title has to be matched too', () => {
+        const state = run(
+            initialGridState([row()]),
+            { type: 'focusCell', rowId: '1', column: TITLE },
+            { type: 'beginEdit', initial: 'Breaking Bad' },
+            { type: 'commitEdit' },
+            { type: 'clearStale' },
+            { type: 'undo' }
+        );
+        expect(state.rows[0].clean_title).toBe('Show');
+        expect(state.staleRowIds).toEqual(['1']);
+    });
+
+    it('is emptied by the shell once it has asked, and by a rescan', () => {
+        const edited = run(
+            initialGridState([row()]),
+            { type: 'focusCell', rowId: '1', column: TITLE },
+            { type: 'beginEdit', initial: 'Breaking Bad' },
+            { type: 'commitEdit' }
+        );
+        expect(run(edited, { type: 'clearStale' }).staleRowIds).toEqual([]);
+        expect(run(edited, { type: 'setRows', rows: [row()] }).staleRowIds).toEqual([]);
+    });
+});
+
 describe('selection', () => {
     it('refuses a row that could not be renamed, and says why', () => {
         const invalid = row({ episode: 'not-an-episode' });

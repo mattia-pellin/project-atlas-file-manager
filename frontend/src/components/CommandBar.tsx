@@ -23,7 +23,6 @@ interface CommandBarProps {
     busy: string | null;
     counts: Counts;
     onScan: () => void;
-    onAnalyze: () => void;
     onTriage: () => void;
     onRename: () => void;
     onSettings: () => void;
@@ -36,7 +35,6 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     busy,
     counts,
     onScan,
-    onAnalyze,
     onTriage,
     onRename,
     onSettings,
@@ -61,7 +59,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
                 aria-label="Directory to scan"
                 onChange={(event) => onDirectoryChange(event.target.value)}
             />
-            <button type="submit" className="button" disabled={busy !== null}>
+            <button type="submit" className="button" disabled={busy !== null} title={`Scan and match (${formatChord('mod+r')})`}>
                 Scan
             </button>
         </form>
@@ -90,9 +88,6 @@ export const CommandBar: React.FC<CommandBarProps> = ({
         </div>
 
         <div className="bar-actions">
-            <button type="button" className="button ghost" onClick={onAnalyze} disabled={busy !== null || counts.total === 0}>
-                Analyze
-            </button>
             <button
                 type="button"
                 className="button ghost"

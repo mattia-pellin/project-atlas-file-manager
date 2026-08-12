@@ -119,6 +119,23 @@ const App: React.FC = () => {
         [analyzeOptions]
     );
 
+    /**
+     * A cell edit invalidates the proposal that was derived from it, so the row
+     * re-matches itself — that, and triage, are the only two ways a match changes.
+     *
+     * There is deliberately no "match everything again" command. It would re-derive
+     * rows the user had already settled by hand and hand them back to the scoring,
+     * silently replacing a chosen answer with a guess. Re-reading the directory is a
+     * rescan, which starts from nothing and is honest about it.
+     */
+    useEffect(() => {
+        if (state.staleRowIds.length === 0) return;
+        const stale = new Set(state.staleRowIds);
+        dispatch({ type: 'clearStale' });
+        const items = state.rows.filter((row) => stale.has(row.id));
+        if (items.length > 0) void analyzeAll(items, undefined, 'Re-matching');
+    }, [analyzeAll, state.rows, state.staleRowIds]);
+
     const analyze = useCallback(
         async (items: MediaItem[]) => {
             if (items.length === 0) return;
@@ -146,9 +163,11 @@ const App: React.FC = () => {
         }
         dispatch({ type: 'setRows', rows: found });
         setBusy(null);
+        // A scan always matches what it found. Splitting the two would leave rows with
+        // no proposal and, since the bulk re-match is gone, no way to get one.
         if (found.length === 0) say('No media files in that directory');
-        else if (settings.analyzeOnScan) await analyze(found);
-    }, [analyze, say, settings.analyzeOnScan, settings.bypassCache, settings.directory, settings.languages]);
+        else await analyze(found);
+    }, [analyze, say, settings.bypassCache, settings.directory, settings.languages]);
 
     /**
      * A hand-picked candidate, replayed over every file it settles.
@@ -248,19 +267,7 @@ const App: React.FC = () => {
 
     const commands: Command[] = useMemo(
         () => [
-            { id: 'scan', label: 'Scan the directory', chord: 'mod+r', run: () => void scan() },
-            {
-                id: 'analyze',
-                label: 'Analyze every file',
-                run: () => void analyze(state.rows),
-                disabled: state.rows.length === 0
-            },
-            {
-                id: 'analyze-pending',
-                label: 'Analyze only the files with no proposal yet',
-                run: () => void analyze(state.rows.filter((row) => row.status === 'pending')),
-                disabled: !state.rows.some((row) => row.status === 'pending')
-            },
+            { id: 'scan', label: 'Rescan the directory and match it again', chord: 'mod+r', run: () => void scan() },
             {
                 id: 'triage',
                 label: 'Triage the unsettled files',
@@ -301,7 +308,7 @@ const App: React.FC = () => {
             { id: 'cache', label: 'Empty the API cache', run: () => void emptyCache() },
             { id: 'keymap', label: 'Keyboard shortcuts', chord: 'mod+/', run: () => setMode('keymap') }
         ],
-        [analyze, counts.selected, emptyCache, openTriage, queue.length, scan, state.focusRowId, state.rows]
+        [counts.selected, emptyCache, openTriage, queue.length, scan, state.focusRowId, state.rows]
     );
 
     // Global chords: the ones that have to work wherever focus happens to be. Everything
@@ -340,7 +347,6 @@ const App: React.FC = () => {
                 busy={busy}
                 counts={counts}
                 onScan={() => void scan()}
-                onAnalyze={() => void analyze(state.rows)}
                 onTriage={() => openTriage(null)}
                 onRename={() => setMode('confirm')}
                 onSettings={() => setMode('settings')}

@@ -17,8 +17,6 @@ export interface Settings {
     matchThreshold: number;
     /** Below this no name is proposed at all. */
     reviewThreshold: number;
-    /** Auto-analyze every file straight after a scan. */
-    analyzeOnScan: boolean;
     /** Tick every `matched` row automatically once analysis finishes. */
     autoSelectMatched: boolean;
 }
@@ -29,7 +27,6 @@ export const DEFAULT_SETTINGS: Settings = {
     bypassCache: false,
     matchThreshold: 0.75,
     reviewThreshold: 0.45,
-    analyzeOnScan: true,
     autoSelectMatched: true
 };
 
@@ -68,7 +65,6 @@ export const loadSettings = (raw: string | null): Settings => {
         bypassCache: typeof stored.bypassCache === 'boolean' ? stored.bypassCache : DEFAULT_SETTINGS.bypassCache,
         matchThreshold: isFraction(stored.matchThreshold) ? stored.matchThreshold : DEFAULT_SETTINGS.matchThreshold,
         reviewThreshold: isFraction(stored.reviewThreshold) ? stored.reviewThreshold : DEFAULT_SETTINGS.reviewThreshold,
-        analyzeOnScan: typeof stored.analyzeOnScan === 'boolean' ? stored.analyzeOnScan : DEFAULT_SETTINGS.analyzeOnScan,
         autoSelectMatched: typeof stored.autoSelectMatched === 'boolean' ? stored.autoSelectMatched : DEFAULT_SETTINGS.autoSelectMatched
     };
 
