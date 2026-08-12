@@ -5,6 +5,10 @@
 venv/
 .venv/
 
+# Throwaway copy of test_media/ that the container renames against, so a manual
+# test cannot rewrite the committed fixtures. Rebuilt by scripts/sandbox-media.sh.
+sandbox/
+
 # Runtime artefacts
 *.log
 .pytest_cache/

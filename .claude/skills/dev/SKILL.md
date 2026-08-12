@@ -56,6 +56,9 @@ Run `npm ci` first if `node_modules` is absent.
   is the fixture directory, and it must never be renamed against. (`MEDIA_DIR`
   in `.env` is a different thing: the host path compose bind-mounts onto
   `/media`. It has no effect on a local `uvicorn`.)
+- To try a **rename**, run `scripts/sandbox-media.sh` and point `MEDIA_ROOT` at
+  the `sandbox/media` copy it prints. That is the whole reason the copy exists:
+  a rename against `test_media/` rewrites committed fixtures.
 
 ## Report
 

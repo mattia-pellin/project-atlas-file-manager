@@ -68,6 +68,17 @@ def test_sanitize_name(raw: str, expected: str) -> None:
         # A word right after ':' or '-' is treated as a new sentence
         ("star wars: the last jedi", "Star Wars: The Last Jedi"),
         ("mission - the beginning", "Mission - The Beginning"),
+        # Acronyms and numerals the source wrote in capitals survive, wherever they sit
+        ("Stargate SG-1", "Stargate SG-1"),
+        ("The Office (US)", "The Office (US)"),
+        ("Rocky II", "Rocky II"),
+        ("NCIS: Los Angeles", "NCIS: Los Angeles"),
+        # ...but a title that is *all* capitals is shouting, not an acronym, and is
+        # still title-cased. Without this, "THE MATRIX" would rename to itself.
+        ("THE MATRIX", "The Matrix"),
+        # A single capital is not an acronym either: "I" has to stay eligible for the
+        # contraction rule above, and "Rocky V" title-cases to itself anyway.
+        ("rocky V", "Rocky V"),
         # Empty input
         ("", ""),
     ],
@@ -89,6 +100,17 @@ def test_the_stays_lowercase_mid_sentence() -> None:
 def test_saxon_genitive_stays_lowercase() -> None:
     """str.title() uppercases the letter after an apostrophe: "A Bug'S Life"."""
     assert format_smart_title("a bug's life") == "A Bug's Life"
+
+
+def test_acronyms_are_not_title_cased() -> None:
+    """`str.title()` turned "Stargate SG-1" into "Stargate Sg-1".
+
+    Found by the `Stargate SG-1/Season 1/` fixture, against the live API: the file was
+    renamed into a folder Plex does not have. TVDB and TMDB both return the acronym
+    correctly capitalised, so the defect was entirely ours.
+    """
+    assert format_smart_title("Stargate SG-1") == "Stargate SG-1"
+    assert format_smart_title("The Office (US)") == "The Office (US)"
 
 
 def test_sanitize_name_never_produces_path_separators() -> None:

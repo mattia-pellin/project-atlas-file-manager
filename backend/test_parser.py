@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from backend.parser import parse_filename
+from backend.scanner import get_media_files
 
 FIXTURE_DIR = Path(__file__).resolve().parent.parent / "test_media"
 
@@ -103,7 +104,95 @@ FIXTURE_PARSES: dict[str, dict[str, Any]] = {
         "episode": None,
         "episode_title": None,
     },
+    # Three more Doctor Who episodes, so the fixture set contains a *series* and not
+    # just single files. All four are equally ambiguous between the 1963 and the 2005
+    # show, which is the point: one triage answer has to settle the whole season, and
+    # a run that settles only some of them is visibly wrong in the grid.
+    "Doctor Who S05E02.mkv": {
+        "media_type": "episode",
+        "clean_title": "Doctor Who",
+        "year": None,
+        "season": 5,
+        "episode": 2,
+        "episode_title": None,
+    },
+    "Doctor Who S05E03.mkv": {
+        "media_type": "episode",
+        "clean_title": "Doctor Who",
+        "year": None,
+        "season": 5,
+        "episode": 3,
+        "episode_title": None,
+    },
+    "Doctor Who S05E04.mkv": {
+        "media_type": "episode",
+        "clean_title": "Doctor Who",
+        "year": None,
+        "season": 5,
+        "episode": 4,
+        "episode_title": None,
+    },
+    # An abbreviation no API can resolve. The parse is fine and the match is hopeless,
+    # which is the case for correcting the title in the grid: the row re-matches on
+    # the edited value, since there is no bulk re-match command to fall back on.
+    "BrBa S01E02.mkv": {
+        "media_type": "episode",
+        "clean_title": "BrBa",
+        "year": None,
+        "season": 1,
+        "episode": 2,
+        "episode_title": None,
+    },
+    # Scene naming: dots as separators, resolution, source, codec and release group,
+    # all of which guessit strips. Note the country suffix goes too — "The Office US"
+    # becomes "The Office", so the search cannot distinguish the UK original.
+    "The.Office.US.S03E11.1080p.WEB-DL.x264-GROUP.mkv": {
+        "media_type": "episode",
+        "clean_title": "The Office",
+        "year": None,
+        "season": 3,
+        "episode": 11,
+        "episode_title": None,
+    },
+    # Absolute anime numbering, and guessit gets it wrong: 1015 is read as season 10,
+    # episode 15, not as absolute episode 1015. Pinned as a defect, not as intent —
+    # it is the fixture for fixing season and episode by hand in the grid.
+    "One Piece - 1015.mkv": {
+        "media_type": "episode",
+        "clean_title": "One Piece",
+        "year": None,
+        "season": 10,
+        "episode": 15,
+        "episode_title": None,
+    },
+    # Accents plus an elision, and a film whose Italian title ("Il favoloso mondo di
+    # Amélie") shares nothing with the filename — the match has to come from
+    # `original_title`, exactly as the Empire Strikes Back fixture does.
+    "Le Fabuleux Destin d'Amélie Poulain (2001).mkv": {
+        "media_type": "movie",
+        "clean_title": "Le Fabuleux Destin d'Amélie Poulain",
+        "year": 2001,
+        "season": None,
+        "episode": None,
+        "episode_title": None,
+    },
+    # Lives in `Stargate SG-1/Season 1/`, so the scan has to recurse and the rename has
+    # to stay in the subdirectory it found the file in. The dash-digit in the title is
+    # not mistaken for an episode number.
+    "Stargate SG-1 S01E01.mkv": {
+        "media_type": "episode",
+        "clean_title": "Stargate SG-1",
+        "year": None,
+        "season": 1,
+        "episode": 1,
+        "episode_title": None,
+    },
 }
+
+# Files in `test_media/` that are deliberately *not* media. The scan must skip them,
+# so they have no parse to pin — but they still have to be accounted for, otherwise
+# the completeness check below cannot tell "ignored on purpose" from "forgotten".
+NON_MEDIA_FIXTURES = {"appunti.txt"}
 
 
 @pytest.mark.parametrize(("filename", "expected"), FIXTURE_PARSES.items(), ids=FIXTURE_PARSES.keys())
@@ -113,12 +202,26 @@ def test_parse_filename_is_pinned(filename: str, expected: dict[str, Any]) -> No
 
 
 def test_every_fixture_is_pinned() -> None:
-    """A fixture added to test_media/ without an expectation here fails the suite."""
-    on_disk = {p.name for p in FIXTURE_DIR.iterdir() if p.is_file()}
-    assert on_disk == set(FIXTURE_PARSES), (
-        f"only in test_media/: {sorted(on_disk - set(FIXTURE_PARSES))}; "
-        f"only in FIXTURE_PARSES: {sorted(set(FIXTURE_PARSES) - on_disk)}"
+    """A fixture added to test_media/ without an expectation here fails the suite.
+
+    `rglob`, not `iterdir`: one fixture sits in `Stargate SG-1/Season 1/`, and a
+    top-level listing would silently stop pinning anything nested.
+    """
+    on_disk = {p.name for p in FIXTURE_DIR.rglob("*") if p.is_file()}
+    expected = set(FIXTURE_PARSES) | NON_MEDIA_FIXTURES
+    assert on_disk == expected, (
+        f"only in test_media/: {sorted(on_disk - expected)}; only in this file: {sorted(expected - on_disk)}"
     )
+
+
+def test_the_scan_sees_exactly_the_media_fixtures() -> None:
+    """The magic-byte filter, against the real directory.
+
+    `appunti.txt` is a text file, so it must not reach the parser however the scan is
+    pointed at it; every media fixture must, including the nested one. Extension
+    checking alone would get both of these wrong.
+    """
+    assert {p.name for p in get_media_files(FIXTURE_DIR)} == set(FIXTURE_PARSES)
 
 
 def test_type_is_inferred_from_season_or_episode() -> None:

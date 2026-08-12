@@ -142,19 +142,34 @@ APOSTROPHES = "'\u2019"
 def format_smart_title(text: str) -> str:
     """Title-cases `text`, keeping articles and prepositions lowercase mid-sentence.
 
-    `str.title()` alone is wrong in two ways this corrects: it capitalises every
-    minor word, and it capitalises the letter after an apostrophe. The second is
-    resolved by looking at both sides of the apostrophe \u2014 see `_after_apostrophe`.
+    `str.title()` alone is wrong in three ways this corrects: it capitalises every
+    minor word, it capitalises the letter after an apostrophe, and it destroys
+    acronyms. The second is resolved by looking at both sides of the apostrophe
+    \u2014 see `_after_apostrophe`.
     """
     if not text:
         return ""
 
+    original = text
+    # `str.title()` preserves length, so an offset into the result indexes the same
+    # word in the source.
     text = text.title()
+
+    # A word the source wrote in full capitals is an acronym or a numeral, and
+    # title-casing it produces a name Plex does not have: "Stargate Sg-1" instead of
+    # "Stargate SG-1", "The Office (Us)" instead of "(US)", "Rocky Ii". A title that
+    # is *entirely* capitals is shouting rather than an acronym, so there nothing is
+    # preserved and the old behaviour stands.
+    keep_capitals = any(character.islower() for character in original)
 
     def replacer(match):
         word = match.group(0)
         word_lower = word.lower()
         start = match.start()
+
+        source = original[start : match.end()]
+        if keep_capitals and len(source) > 1 and source.isupper():
+            return source
 
         if start == 0:
             return word
