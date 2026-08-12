@@ -288,6 +288,41 @@ async def test_a_stale_forced_key_is_refused_not_silently_rescored(mocker) -> No
     assert [c.key for c in item.candidates] == ["604", "605"]
 
 
+@pytest.mark.asyncio
+async def test_a_refused_reanalysis_does_not_return_the_previous_proposal(mocker) -> None:
+    """The client sends the whole row back, previous answer included.
+
+    Found against the live API: a stale `forced_key` came back carrying the name,
+    status and confidence of the *earlier* analysis, so the row still read as
+    decided. A name nobody chose, presented as current and ticked for rename, is
+    precisely the failure this application must not have.
+    """
+    _mock_tmdb(mocker, MATRIX_RESULTS)
+    item = await enrich_media_item(_movie_item(), ["en"])
+    assert item.proposed_name == "The Matrix Reloaded (2003).mkv"
+
+    again = await enrich_media_item(item, ["en"], forced_key="999999")
+
+    assert again.proposed_name is None
+    assert again.status == "error"
+    assert again.confidence is None
+    assert "no longer among TMDB's results" in again.message
+
+
+@pytest.mark.asyncio
+async def test_an_edited_title_that_matches_nothing_clears_the_old_name(mocker) -> None:
+    """The same staleness, reached from the grid rather than from triage."""
+    _mock_tmdb(mocker, MATRIX_RESULTS)
+    item = await enrich_media_item(_movie_item(), ["en"])
+
+    item.clean_title = "Zzzzz Not A Film"
+    item.year = None
+    again = await enrich_media_item(item, ["en"])
+
+    assert again.proposed_name is None
+    assert again.status == "error"
+
+
 # --- Thresholds --------------------------------------------------------------
 
 

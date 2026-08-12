@@ -246,10 +246,17 @@ async def enrich_media_item(
     record are both cached, replaying one choice across every episode of a series
     costs no additional API request.
     """
-    # Stale candidates from the previous analysis of this row must not survive: the
-    # client sends the whole item back, and a list that no longer matches the status
-    # would offer a pick that is not on the table any more.
+    # Nothing from the previous analysis of this row may survive it. The client sends
+    # the whole item back, so without this a re-analysis that finds nothing — a stale
+    # forced key, an edited title that no longer matches — returns the *old* name,
+    # status and confidence unchanged, and the row still looks decided. That is the
+    # one failure mode this app must not have: a name nobody chose, presented as
+    # current, ticked for rename.
     item.candidates = []
+    item.proposed_name = None
+    item.confidence = None
+    item.message = None
+    item.status = "pending"
 
     # If standard scan, we parse the filename here. If re-analyzing, we use user overrides.
     if not item.media_type or item.media_type == "unknown":
