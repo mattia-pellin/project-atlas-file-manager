@@ -548,6 +548,43 @@ of the tree. `resolve_rename_target` additionally requires a bare filename and
 returns both ends of the rename, so the caller cannot re-derive the source from
 the unchecked string.
 
+### There is no CORS middleware, and adding one is a rename anybody can trigger
+
+**Nothing here is ever fetched cross-origin.** The container serves the bundle and the
+API from one hostname (`StaticFiles` mounted at `/`, the API under `/api`), and in
+development Vite proxies `/api` server-side (`frontend/vite.config.ts`), so the browser
+sees a single origin in both configurations. A CORS middleware has no legitimate client
+here — which is why the one this app used to mount was pure exposure.
+
+It was `allow_origins=["*"]` with `allow_credentials=True`. That reads as
+spec-invalid-and-therefore-inert and **it is not**: Starlette does not send a literal
+`*` when credentials are on, it *echoes the requesting Origin* back and pairs it with
+`Access-Control-Allow-Credentials: true`. Measured, not assumed — a preflight from
+`https://evil.example` came back `200` with `Access-Control-Allow-Origin:
+https://evil.example` and `Allow-Methods` including `DELETE`. It is the maximally
+permissive configuration and browsers honour it exactly. So any page open in any other
+tab could `fetch('…/api/rename', {credentials: 'include'})`, the browser would attach
+the SSO cookie of whoever was logged in, and a Plex library with no rollback journal
+would be rewritten.
+
+**Removing it closes the hole rather than narrowing it**, and that turns on one fact
+worth keeping true. The standard objection is that CORS stops a response being *read*,
+not a request being *sent* — an HTML form posts cross-site with no preflight at all.
+That escape needs one of the three CORS-safelisted content types, and every write here
+takes a JSON body, so `text/plain`, `x-www-form-urlencoded` and `multipart/form-data`
+are all `422` before any work happens. The preflight is therefore mandatory, and an
+unanswered preflight is a request the browser never makes. `backend/test_cors.py` pins
+both halves: no `Access-Control-Allow-Origin` on a hostile preflight, and no write
+endpoint accepting a safelisted content type. An endpoint that later learns to accept a
+form reopens this, and fails there first.
+
+What it does **not** cover: anything with direct network access to the container reaches
+the API unauthenticated, because auth lives in the reverse proxy and not in this app.
+That is accepted — single user, home lab — and CORS was never what stood in the way.
+The other residual is outside this repo: whether the SSO cookie rides along on a
+cross-site request at all depends on its `SameSite`, which the proxy sets. `Lax` would
+have blocked the attack above on its own. It is not this app's to rely on.
+
 ## The UI
 
 Rebuilt from nothing in the redesign, because the tool it replaced was a Google
@@ -1071,8 +1108,6 @@ Tracked so they aren't rediscovered. Each has a test.
 - `diskcache` is created at the relative path `.cache`, so in the container it
   resolves to `/app/.cache`, which is not a volume — **the API cache is lost
   on every redeploy.**
-- `CORSMiddleware` uses `allow_origins=["*"]` together with
-  `allow_credentials=True`, which the CORS spec disallows.
 
 `T201` (no `print()`) is muted in `pyproject.toml` because `api_clients.py`
 still logs via `print`. Converting to structured logging is a prerequisite for

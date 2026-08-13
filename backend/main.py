@@ -3,7 +3,6 @@ import os
 import uuid
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import matching
@@ -23,13 +22,11 @@ from .scanner import get_media_files
 
 app = FastAPI(title="Plex File Manager API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# There is deliberately no CORS middleware. Nothing here is ever fetched cross-origin:
+# in the container this same app serves the bundle (the `StaticFiles` mount below) and
+# the API under one hostname, and in development Vite proxies `/api` server-side, so the
+# browser sees a single origin either way. See `backend/test_cors.py` for why re-adding
+# one to make a dev setup work would be a rename anybody's browser could trigger.
 
 
 @app.post("/api/scan", response_model=list[MediaItem])
