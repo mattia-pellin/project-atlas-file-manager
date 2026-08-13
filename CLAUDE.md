@@ -228,13 +228,26 @@ So does the public REST API — `curl https://api.github.com/…` needs no
 credential on this repo and is the fallback for reading CI results while the MCP
 is down.
 
-`list_pull_requests` returns **404 Not Found** on this repo. That is a property
-of the repo, not a broken token: `GET /repos/…/pulls` 404s anonymously too,
-while `commits`, `branches`, `tags`, `releases` and `issues` all return 200
-anonymously, and `octocat/Hello-World/pulls` returns 200. The repo has
-`has_issues: false` and has never had a pull request
-(`search/issues?q=repo:…+is:pr` → `total_count: 0`). Expect it to start working
-once a PR exists. Do not "fix" it by widening the PAT.
+`list_pull_requests` returns **404 Not Found** on this repo, and the cause is
+`has_pull_requests: false` — **pull requests are switched off** in
+Settings → Features. It is a property of the repo, not a broken token, so do not
+"fix" it by widening the PAT: `GET /repos/…/pulls` 404s anonymously too, while
+`commits`, `branches`, `tags`, `releases` and `issues` all return 200.
+
+An earlier note here blamed `has_issues: false` and "the repo has never had a pull
+request", and predicted it would start working once one existed. That was wrong,
+and it was disproved the expensive way: adding `.github/dependabot.yml` produced
+**14 `dependabot/*` branches and zero pull requests**, with every Dependabot run
+reporting `success`. Read the flag rather than the symptom —
+`GET /repos/{owner}/{repo}` carries both `has_pull_requests` and
+`pull_request_creation_policy`, and neither is `has_issues`.
+
+**Consequence for Dependabot: it is currently doing nothing useful.** Its entire
+output is pull requests. Until pull requests are enabled, the config produces
+branches nobody can review or merge, and the alerts stay open regardless — alerts
+and updates are separate systems. Enabling the feature is a repository setting and
+therefore the user's call; the config is committed and correct, and starts working
+the moment the toggle flips.
 
 Note that `x-accepted-github-permissions` on a response documents what the
 *endpoint* accepts; it is present on successful calls too, so it is not
