@@ -177,11 +177,15 @@ export const Grid = React.forwardRef<HTMLDivElement, GridProps>(function Grid(
     }, []);
 
     const onKeyDown = useCallback(
-        (event: React.KeyboardEvent) => {
+        // Typed to the div it is attached to, so `currentTarget` is the grid element
+        // itself — that is what restores the focus below without threading a ref through
+        // the forwarded one App already owns.
+        (event: React.KeyboardEvent<HTMLDivElement>) => {
             const spec = COLUMNS[state.focusColumn];
 
             // --- While editing, the input owns nearly everything ------------------
             if (state.editing) {
+                let ended = true;
                 if (matchesChord(event, 'enter')) {
                     event.preventDefault();
                     dispatch({ type: 'commitEdit', then: 'down' });
@@ -191,7 +195,26 @@ export const Grid = React.forwardRef<HTMLDivElement, GridProps>(function Grid(
                 } else if (matchesChord(event, 'tab') || matchesChord(event, 'shift+tab')) {
                     event.preventDefault();
                     dispatch({ type: 'commitEdit', then: event.shiftKey ? 'stay' : 'right' });
+                } else {
+                    ended = false;
                 }
+                // The editor is about to unmount with the DOM focus inside it, which sends
+                // focus to `body` and leaves the grid deaf: App's effect hands it back only
+                // on a mode change or a new set of rows, so neither happens here and the
+                // whole keyboard model is unreachable until a cell is clicked. Ending one
+                // edit should not cost the fluency the grid exists for.
+                //
+                // Restored here rather than in an effect on `state.editing`, because the
+                // other way out of an edit is the input's own `onBlur` — the user clicking
+                // Scansiona, or opening an overlay — and yanking focus back off the thing
+                // they just clicked is a worse bug than the one being fixed. Only a key
+                // that ends the edit returns it.
+                //
+                // Safe to do while the input is still mounted: this blurs it, so `onBlur`
+                // dispatches a second `commitEdit`, and the reducer's `if (!state.editing)`
+                // guard makes it a no-op — including after `cancelEdit`, which must not be
+                // quietly turned back into a commit.
+                if (ended) event.currentTarget.focus();
                 return;
             }
 

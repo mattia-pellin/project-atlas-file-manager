@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useReducer } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MediaItem } from '../api';
-import { initialGridState } from '../lib/gridReducer';
+import { columnIndex } from '../lib/columns';
+import { gridReducer, initialGridState } from '../lib/gridReducer';
 import { Grid } from './Grid';
 
 /**
@@ -97,6 +98,67 @@ const render = (rows: MediaItem[]): string => {
     return container.innerHTML;
 };
 
+/**
+ * The same grid, but wired to the real reducer.
+ *
+ * `render` above passes a frozen state and a dispatch that discards, which is right for
+ * asking what one state paints. It cannot ask what a *keystroke* leaves behind: the
+ * editor never unmounts, so the focus bug below is invisible through it.
+ */
+const Live: React.FC<{ rows: MediaItem[] }> = ({ rows }) => {
+    const [state, dispatch] = useReducer(gridReducer, rows, initialGridState);
+    return (
+        <>
+            {/* Stands in for Scansiona: something outside the grid that can take the focus
+                while a cell is being edited. */}
+            <button type="button" id="elsewhere">
+                Scansiona
+            </button>
+            <Grid
+                state={state}
+                dispatch={dispatch}
+                onOpenTriage={() => undefined}
+                onCopy={() => undefined}
+                onPaste={() => undefined}
+                onExplainConfidence={() => undefined}
+            />
+        </>
+    );
+};
+
+const renderLive = (rows: MediaItem[]): HTMLElement => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root.render(<Live rows={rows} />));
+    const grid = container.querySelector<HTMLElement>('.grid');
+    if (!grid) throw new Error('no grid');
+    grid.focus();
+    return grid;
+};
+
+const press = (key: string) => {
+    act(() => {
+        document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    });
+};
+
+/** Types into a controlled input the way the browser does — React listens for `input`. */
+const type = (input: HTMLInputElement, text: string) => {
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    act(() => {
+        setValue?.call(input, text);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+};
+
+/** Onto `Titolo`, the first editable column — the cursor starts on a read-only one. */
+const focusFirstEditableColumn = () => {
+    for (let step = 1; step < columnIndex('clean_title'); step += 1) press('ArrowRight');
+};
+
+const editor = () => container.querySelector('input');
+
 afterEach(() => {
     act(() => root.unmount());
     container.remove();
@@ -149,5 +211,68 @@ describe('Grid', () => {
         // dots themselves — the header carries an aria-label of its own.
         const names = new Set(Array.from(html.matchAll(/role="img" aria-label="([^"]+)"/g), (match) => match[1]));
         expect(names.size).toBe(statuses.length);
+    });
+});
+
+/**
+ * Leaving an edit has to leave the keyboard where it found it.
+ *
+ * The editor unmounts with the DOM focus inside it, which drops focus to `body`, and
+ * App hands it back only on a mode change or a new set of rows — neither of which an
+ * edit is. So every key after the first `Enter` went nowhere and the grid could only be
+ * revived with the mouse, in the one tool whose whole point is not needing it.
+ */
+describe('Grid, leaving an edit', () => {
+    it('gives the keyboard back to the grid on Enter', () => {
+        const grid = renderLive([scanned()]);
+        focusFirstEditableColumn();
+        press('F2');
+        expect(document.activeElement).toBe(editor());
+
+        press('Enter');
+
+        expect(editor()).toBeNull();
+        expect(document.activeElement).toBe(grid);
+    });
+
+    it('gives it back on Escape too, without committing what was cancelled', () => {
+        // The restore blurs the input while it is still mounted, so its `onBlur` fires a
+        // second `commitEdit`. That must stay a no-op — turning a cancel into a commit
+        // would write a discarded value to a row about to be renamed.
+        const grid = renderLive([scanned()]);
+        focusFirstEditableColumn();
+        press('F2');
+        type(editor()!, 'Rubbish');
+
+        press('Escape');
+
+        expect(document.activeElement).toBe(grid);
+        expect(container.textContent).toContain('Doctor Who');
+        expect(container.textContent).not.toContain('Rubbish');
+    });
+
+    it('gives it back on Tab, which is the other key that ends an edit', () => {
+        const grid = renderLive([scanned()]);
+        focusFirstEditableColumn();
+        press('F2');
+
+        press('Tab');
+
+        expect(editor()).toBeNull();
+        expect(document.activeElement).toBe(grid);
+    });
+
+    it('does not take the focus off whatever was clicked instead', () => {
+        // The other way out of an edit is the input's own blur. Restoring focus on *that*
+        // path would snatch it back from the button the user just pressed, so the fix
+        // deliberately lives in the key handler and not in an effect on `state.editing`.
+        renderLive([scanned()]);
+        focusFirstEditableColumn();
+        press('F2');
+
+        const elsewhere = container.querySelector<HTMLButtonElement>('#elsewhere')!;
+        act(() => elsewhere.focus());
+
+        expect(document.activeElement).toBe(elsewhere);
     });
 });
