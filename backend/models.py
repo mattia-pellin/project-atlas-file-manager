@@ -80,7 +80,9 @@ class ConfigOut(BaseModel):
     media_roots: list[str]
     default_directory: str | None
     language_preference: list[str]
-    cache_ttl_hours: int
+    # Float, because `CACHE_TTL_HOURS=0.5` is a legitimate half-hour and rounding it
+    # to an int here would make the panel report a TTL the cache is not using.
+    cache_ttl_hours: float
     cache_entries: int
     cache_size_bytes: int
     thresholds: ThresholdsOut

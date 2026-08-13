@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import matching
 from .analyzer import enrich_media_item
-from .api_clients import MAX_EXPOSED_CANDIDATES, TMDBClient, TVDBClientV4, cache
+from .api_clients import MAX_EXPOSED_CANDIDATES, TMDBClient, TVDBClientV4, cache, cache_ttl_hours
 from .models import ConfigOut, KeyCheckOut, KeyStatus, MediaItem, RenameRequest, ScanRequest, ThresholdsOut
 from .parser import parse_filename
 from .paths import (
@@ -183,7 +183,10 @@ async def get_config():
         media_roots=roots,
         default_directory=os.getenv(MEDIA_ROOT_VAR, DEFAULT_MEDIA_ROOT),
         language_preference=[lang.strip() for lang in os.getenv("LANG_PREFS", "it,en").split(",") if lang.strip()],
-        cache_ttl_hours=int(os.getenv("CACHE_TTL_HOURS", 24)),
+        # The helper, not a second reading of the variable: the panel prints this number
+        # as the cache's TTL, so it has to be the one the cache was actually given —
+        # including when the configured value was unusable and the default took over.
+        cache_ttl_hours=cache_ttl_hours(),
         cache_entries=len(cache),
         cache_size_bytes=cache.volume(),
         thresholds=ThresholdsOut(

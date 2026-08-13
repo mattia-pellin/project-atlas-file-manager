@@ -468,7 +468,14 @@ apply-to-series replay down — the checkbox goes dead while the field holds a n
 - `backend/paths.py` — containment. Every client-supplied path goes through it;
   nothing else may build a path from request data.
 - `backend/api_clients.py` — TMDB/TVDB clients, `diskcache`, retry,
-  `single_flight()`, `get_episode_names()` and `calculate_padding()`.
+  `single_flight()`, `get_episode_names()` and `calculate_padding()`. Also
+  `cache_ttl_hours()`, the **single** reading of `CACHE_TTL_HOURS`: it was five
+  inline copies plus a sixth in `/api/config`, so the TTL the settings panel printed
+  and the TTL the cache used were free to disagree, and the `int()` in the sixth
+  turned a typo in one variable into a 500. Fractions are allowed, `0` means reuse
+  nothing, anything unusable falls back to 24 with a printed reason. A negative
+  answer is capped at one hour — it follows the setting down, never up — and the
+  TVDB token's own 24h is a credential lifetime, deliberately not this.
 - `backend/parser.py` — thin `guessit` wrapper; normalises multi-episode
   lists to a `"10-12"` string and rejoins `alternative_title` onto the title.
 - `naming_cases.toml` / `backend/naming_cases.py` — the hand-written

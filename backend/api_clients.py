@@ -25,6 +25,55 @@ def is_retryable_error(exception: Exception) -> bool:
 # Simple, persistent on-disk cache so repeated scans don't hammer TMDB/TVDB.
 cache = diskcache.Cache(".cache")
 
+CACHE_TTL_VAR = "CACHE_TTL_HOURS"
+DEFAULT_CACHE_TTL_HOURS = 24.0
+# A "nothing matched" answer is held briefly whatever the configured TTL, because it
+# is the answer most likely to be wrong for a reason outside this app — a key that was
+# not loaded, a provider having a bad minute — and a day is a long time to keep
+# repeating it. It follows the TTL down but never up.
+MAX_NEGATIVE_CACHE_TTL_SECONDS = 3600
+
+
+def cache_ttl_hours() -> float:
+    """How long a provider response stays usable, from `CACHE_TTL_HOURS`.
+
+    Read per call rather than at import, so the value the container was started with
+    is the value in force, and read in *one* place: this used to be five copies of
+    `int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600` inline at the `cache.set` calls
+    plus a sixth in `/api/config`, which is six chances for the number the settings
+    panel prints to stop being the number the cache uses.
+
+    Anything unusable falls back to the default instead of raising. A typo here used
+    to reach `int()` on a request path and surface as a 500 from `/api/config` — an
+    app that looks broken, for a variable whose worst honest consequence is fetching
+    a title again sooner than necessary.
+
+    `0` is a real setting: it means do not reuse anything, which is what you want
+    while chasing a wrong match. A negative is not, and falls back.
+    """
+    raw = os.getenv(CACHE_TTL_VAR)
+    if raw is None or not raw.strip():
+        return DEFAULT_CACHE_TTL_HOURS
+    try:
+        hours = float(raw)
+    except ValueError:
+        print(f"{CACHE_TTL_VAR}={raw!r} is not a number; falling back to {DEFAULT_CACHE_TTL_HOURS:g}h")
+        return DEFAULT_CACHE_TTL_HOURS
+    if hours < 0:
+        print(f"{CACHE_TTL_VAR}={raw!r} is negative; falling back to {DEFAULT_CACHE_TTL_HOURS:g}h")
+        return DEFAULT_CACHE_TTL_HOURS
+    return hours
+
+
+def cache_ttl_seconds() -> int:
+    """The TTL every `cache.set` of a provider payload is given."""
+    return int(cache_ttl_hours() * 3600)
+
+
+def negative_cache_ttl_seconds() -> int:
+    """The TTL for an empty result. See `MAX_NEGATIVE_CACHE_TTL_SECONDS`."""
+    return min(MAX_NEGATIVE_CACHE_TTL_SECONDS, cache_ttl_seconds())
+
 
 class APIError(Exception):
     pass
@@ -321,11 +370,11 @@ class TMDBClient:
                 results = data.get("results") or []
                 if results:
                     results = results[:MAX_CACHED_RESULTS]
-                    cache.set(cache_key, results, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+                    cache.set(cache_key, results, expire=cache_ttl_seconds())
                     return results
 
         # Cache negative result briefly to avoid hammering on unmatchable items
-        cache.set(cache_key, [], expire=3600)
+        cache.set(cache_key, [], expire=negative_cache_ttl_seconds())
         return []
 
     async def search_movie(
@@ -384,7 +433,10 @@ class TVDBClientV4:
                     response = await client.post(f"{self.BASE_URL}/login", json=payload, timeout=10.0)
                     response.raise_for_status()
                     token = response.json().get("data", {}).get("token")
-                    # Token usually valid for 1 month, let's cache for 24h
+                    # Token usually valid for 1 month, let's cache for 24h. Deliberately
+                    # not `cache_ttl_seconds()`: this is a credential's lifetime, not a
+                    # payload's freshness, and shortening the TTL to re-check a title
+                    # should not mean re-authenticating on every scan.
                     cache.set(cache_key, token, expire=86400)
                     return token
                 except Exception as e:
@@ -463,12 +515,12 @@ class TVDBClientV4:
                 entries = data.get("data") or []
                 if entries:
                     entries = entries[:MAX_CACHED_RESULTS]
-                    cache.set(cache_key, entries, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+                    cache.set(cache_key, entries, expire=cache_ttl_seconds())
                     return entries
             except Exception as e:
                 print(f"TVDB search failed: {e}")
 
-            cache.set(cache_key, [], expire=3600)
+            cache.set(cache_key, [], expire=negative_cache_ttl_seconds())
             return []
 
     async def search_series(
@@ -664,7 +716,7 @@ class TVDBClientV4:
                 if episodes and complete:
                     break
 
-            cache.set(cache_key, names, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+            cache.set(cache_key, names, expire=cache_ttl_seconds())
             return names
 
     async def get_series_translation(
@@ -689,7 +741,7 @@ class TVDBClientV4:
                     data = await self._request(f"/series/{series_id}/translations/{tvdb_language(lang)}", token)
                     name = data.get("data", {}).get("name")
                     if name:
-                        cache.set(cache_key, name, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+                        cache.set(cache_key, name, expire=cache_ttl_seconds())
                         return name
                 except httpx.HTTPStatusError as e:
                     if e.response.status_code == 404:
@@ -697,7 +749,7 @@ class TVDBClientV4:
                 except Exception:
                     pass
 
-            cache.set(cache_key, "__NONE__", expire=3600)
+            cache.set(cache_key, "__NONE__", expire=negative_cache_ttl_seconds())
             return None
 
     async def get_series_extended(
@@ -753,7 +805,7 @@ class TVDBClientV4:
                     "episodes_raw": episodes,
                     "year": year,
                 }
-                cache.set(cache_key, result, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+                cache.set(cache_key, result, expire=cache_ttl_seconds())
                 return result
             except Exception as e:
                 print(f"TVDB series extended failed: {e}")
