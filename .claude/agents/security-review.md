@@ -94,7 +94,17 @@ Measured 2026-08-13: **27 open Dependabot alerts, of which 26 are
 postcss, babel, minimatch. The image ships the *built bundle*, and
 `uv sync --frozen --no-dev` keeps the Python dev group out too, so none of those
 26 exist in the running container. Exactly one was runtime: `diskcache` in
-`uv.lock`. Code scanning was 18 open, dominated by `actions/unpinned-tag` and by
+`uv.lock`.
+
+**Check whether they are simply out of date before you triage them.** On the same
+day, 22 of those 26 closed with `npm audit fix` and no change to `package.json`.
+"Not in the image" is a reason to deprioritise a finding, not a reason to accept
+it — and an advisory that a lockfile refresh erases should never reach the user as
+an accepted risk. Run the refresh, re-measure, then triage the survivors. The four
+that survived were vite and vitest, whose patch line is a major bump away, so they
+are a real decision rather than a stale resolution.
+
+Code scanning was 18 open, dominated by `actions/unpinned-tag` and by
 `py/path-injection` on `backend/paths.py` — the file whose entire job is to
 prevent that, so the finding is about whether the sanitiser convinces CodeQL,
 not about whether containment works.

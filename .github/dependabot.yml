@@ -1,0 +1,86 @@
+# Dependabot version updates.
+#
+# READ THIS FIRST: nothing in this file silences a Dependabot *alert*. Alerts come from
+# the dependency graph matched against the advisory database, and `ignore` here only
+# stops Dependabot opening a pull request — the alert stays open in the Security tab.
+# The mechanism that dismisses alerts for development-scoped dependencies is an
+# **auto-triage rule**, configured in the repository's Settings, not here.
+#
+# What this file is for is the other half of the problem: the two locks
+# (`uv.lock`, `frontend/package-lock.json`) are the whole point of this project's
+# dependency policy — see "Dependencies are locked" in CLAUDE.md — and a lock only
+# stays honest if something keeps proposing moves. Left to a human, the frontend tree
+# drifted far enough to collect twenty-six advisories before anyone looked.
+#
+# Everything is weekly and grouped. The failure mode to avoid is not "too few updates",
+# it is a wall of single-dependency pull requests that nobody reads, which is how a
+# genuinely important bump gets merged unexamined alongside twenty trivial ones.
+
+version: 2
+
+updates:
+  # --- Frontend -------------------------------------------------------------------
+  # Split by what ships. The runtime group is three packages that end up in the bundle
+  # a browser executes; the tooling group is everything that only ever runs on this
+  # machine or in CI. They deserve different amounts of attention, so they arrive in
+  # different pull requests.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-runtime:
+        dependency-type: production
+        update-types: [minor, patch]
+      frontend-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+    # Majors are deliberately left out of both groups, so each one arrives alone and has
+    # to be read. vite and vitest are the live example: closing their advisories means
+    # crossing three and two majors respectively, which is a change to how the app is
+    # built and tested, not a lockfile refresh.
+
+  # --- Backend --------------------------------------------------------------------
+  # `uv.lock` covers both `[project.dependencies]` and `[dependency-groups] dev`, and
+  # the image installs with `--no-dev`. So the runtime group is the only one here whose
+  # contents reach the container.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      backend-runtime:
+        dependency-type: production
+        update-types: [minor, patch]
+      backend-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # pydantic pins pydantic-core with `==`, so it only ever moves when pydantic does.
+      # A pull request against it is noise by construction — see CLAUDE.md.
+      - dependency-name: pydantic-core
+
+  # --- CI -------------------------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # --- Base images ----------------------------------------------------------------
+  # `node:20-slim` and `python:3.14-slim`. Patch bumps here are how CVEs in the OS layer
+  # get out of the published image, which matters more than anything in the frontend
+  # tree: this is the code that actually runs next to the Plex library.
+  #
+  # Ungrouped on purpose — there are only two, and the Python one is load-bearing.
+  # CLAUDE.md records what was measured on 3.14; a major bump invalidates that.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3

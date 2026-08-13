@@ -241,12 +241,41 @@ Note that `x-accepted-github-permissions` on a response documents what the
 evidence of a permission failure.
 
 **Dependabot, code scanning and secret scanning are all live on this repo** and
-the PAT already reads all three — verified 2026-08-13. The `security-review`
+the PAT reads *and writes* all three — verified 2026-08-13. The `security-review`
 agent starts from them rather than from `npm audit`. Read the triage rule in
 `.claude/agents/security-review.md` before quoting a count at anyone: on that
 date 26 of the 27 open Dependabot alerts were `scope: development` in
 `frontend/package-lock.json`, and the image ships the built bundle, so they are
 not in the running container. The number that meant something was **one**.
+
+**But "not in the image" is a reason to deprioritise, never a reason to dismiss.**
+Of those 26, **22 closed with `npm audit fix` and no change to `package.json`** —
+they were transitive packages a few patches stale, not advisories anyone had to
+live with. Dismissing them would have left a permanent "reviewed, ignoring" record
+over a problem that a lockfile refresh erased. So the order is: refresh the lock,
+re-measure, *then* triage what is genuinely left. The four survivors were vite and
+vitest, where the patch line is three and two majors away.
+
+Three things about dismissing, all of which cost time to find out:
+
+- **`.github/dependabot.yml` cannot silence an alert.** Its `ignore` key suppresses
+  *pull requests*. Alerts come from the dependency graph against the advisory
+  database and are not configurable from the repo tree at all. The file is worth
+  having for the other reason — something has to keep proposing moves, or the lock
+  drifts 26 advisories deep again — and it says this at the top so nobody re-learns it.
+- **The mechanism that does filter by scope is a Dependabot auto-triage rule**, and
+  it can target `devDependency` directly. Custom rules are free on public repos, but
+  they are created in **Settings → Advanced Security → Dependabot rules** and there is
+  **no REST API** for authoring them, so this is one of the few things here that
+  cannot be done from an agent. The preset *Dismiss low impact issues for
+  development-scoped dependencies* is already on by default for public repos; it is
+  npm-only and narrow, which is why 26 alerts got past it.
+- **"False positive" is the wrong reason,** and GitHub's `inaccurate` means exactly
+  that — the advisory is wrong. These advisories are correct; what is false is their
+  relevance here. Use `not_used` when the vulnerable path genuinely cannot execute
+  (a Windows-only bug, on Linux) and `tolerable_risk` when it could but the exposure
+  is acceptable. The reason is read later by someone deciding whether to trust the
+  dismissal, so it has to be the true one.
 
 Diagnose a failing server from
 `~/.cache/claude-cli-nodejs/-home-mattia-projects-project-atlas-file-manager/mcp-logs-<server>/`
