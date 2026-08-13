@@ -863,6 +863,26 @@ scoring that had already got it wrong. What remains is deliberate and narrow:
   re-matches every row it filled. Editing `proposed_name` does not — writing the
   name by hand is a decision, not staleness.
 
+**Find and replace writes `proposed_name` and nothing else** (`Ctrl+H`,
+`lib/replace.ts`, `ReplaceOverlay.tsx`). That is not a simplification: an input column
+is what the row is re-matched from, so a bulk edit there would mark forty rows stale and
+the re-analysis would hand back the API's answer over the correction. `proposed_name` is
+the one column the app treats as a decision, which is exactly what a correction applied
+to forty names is.
+
+The search is **literal, never a regex** — as a pattern, `S.H` matches `Sch` and `S H`
+too, and nobody reads forty names before pressing Apply — and case-sensitive by default,
+because half of what is corrected here *is* the case. Scope is the whole table or the
+ticked rows, defaulting to the ticked ones when there are any. The panel previews the
+count and the first few before/after pairs from `replacementsFor`, the same pure
+function the reducer applies, so the panel cannot promise an edit it will not make;
+rows with no proposal and no-op edits are dropped from both. The whole batch is **one
+undo**, like every other range write.
+
+`Ctrl+H` because that is the chord the Google Sheet this tool replaced used — and
+Sheets binding it is the proof the browser hands it over. `Alt+H` is not free: it opens
+Firefox's Help menu.
+
 **The settings panel refuses what it cannot detect later.** Four sections, and each
 one is a way to be wrong that produces no error anywhere downstream:
 

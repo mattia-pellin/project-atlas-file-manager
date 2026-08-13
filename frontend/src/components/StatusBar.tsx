@@ -15,7 +15,16 @@ import { Kbd } from './Kbd';
  * a key that does nothing.
  */
 
-export type Mode = 'grid' | 'triage' | 'settings' | 'keymap' | 'palette' | 'confirm' | 'confidence' | 'about';
+export type Mode =
+    | 'grid'
+    | 'triage'
+    | 'replace'
+    | 'settings'
+    | 'keymap'
+    | 'palette'
+    | 'confirm'
+    | 'confidence'
+    | 'about';
 
 interface Hint {
     chord: Chord;
@@ -37,6 +46,10 @@ const HINTS: Record<Mode, Hint[]> = {
         { chord: 'a', what: 'tutta la serie' },
         { chord: 's', what: 'salta' },
         { chord: 'escape', what: 'griglia' }
+    ],
+    replace: [
+        { chord: 'enter', what: 'sostituisci' },
+        { chord: 'escape', what: 'annulla' }
     ],
     settings: [{ chord: 'escape', what: 'torna alla griglia' }],
     keymap: [{ chord: 'escape', what: 'torna alla griglia' }],

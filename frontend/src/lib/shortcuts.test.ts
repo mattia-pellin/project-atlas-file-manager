@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SCAN_CHORD, SHORTCUTS, TRIAGE_CHORD, TRIAGE_ROW_CHORD, TYPE_CHORD } from './shortcuts';
+import { REPLACE_CHORD, SCAN_CHORD, SHORTCUTS, TRIAGE_CHORD, TRIAGE_ROW_CHORD, TYPE_CHORD } from './shortcuts';
 
 /**
  * A chord something above the page keeps never reaches it, so `preventDefault()` never
@@ -52,6 +52,14 @@ describe('the keymap', () => {
     it('keeps scan on Ctrl+R alone — Ctrl+Shift+S never arrived on this keyboard', () => {
         expect(SCAN_CHORD).toBe('mod+r');
         expect(everyChord()).not.toContain('mod+shift+s');
+    });
+
+    it('keeps find and replace on the chord every spreadsheet uses', () => {
+        // Ctrl+H, as in the Google Sheet this tool replaced — that is where the muscle
+        // memory comes from, and Sheets binding it is the proof the browser hands it over.
+        expect(REPLACE_CHORD).toBe('mod+h');
+        expect(RESERVED).not.toContain(REPLACE_CHORD);
+        expect(everyChord()).toContain(REPLACE_CHORD);
     });
 
     it('keeps the two triage entries off the chord the AMD overlay eats', () => {

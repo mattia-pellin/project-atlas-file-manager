@@ -60,6 +60,17 @@ export const TRIAGE_ROW_CHORD: Chord = 'mod+g';
  */
 export const TYPE_CHORD: Chord = 'alt+c';
 
+/**
+ * Find and replace, over the proposed names.
+ *
+ * `Ctrl+H` is find-and-replace in every spreadsheet — including the Google Sheet this
+ * tool replaced, which is where the muscle memory comes from. It is also one of the few
+ * `Ctrl+letter`s that is genuinely preventable: Sheets and Docs both bind it and both
+ * work in Chrome and Firefox, which is the only evidence worth having after `Ctrl+T`
+ * (never delivered) and `Ctrl+Shift+S` (never arrives on this keyboard).
+ */
+export const REPLACE_CHORD: Chord = 'mod+h';
+
 export interface ShortcutGroup {
     title: string;
     shortcuts: Shortcut[];
@@ -93,7 +104,8 @@ export const SHORTCUTS: ShortcutGroup[] = [
             { chord: 'mod+z', what: 'Annulla' },
             { chord: 'mod+shift+z', what: 'Ripristina' },
             { chord: 'mod+c', what: 'Copia la cella' },
-            { chord: 'mod+v', what: 'Incolla nella cella, o in tutte quelle selezionate' }
+            { chord: 'mod+v', what: 'Incolla nella cella, o in tutte quelle selezionate' },
+            { chord: REPLACE_CHORD, what: 'Trova e sostituisci nei nomi proposti' }
         ]
     },
     {

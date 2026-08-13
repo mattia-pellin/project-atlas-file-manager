@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MediaItem } from '../api';
 import { columnIndex } from './columns';
 import { GridAction, gridReducer, GridState, initialGridState, rangeRowIds } from './gridReducer';
+import { ReplaceRequest } from './replace';
 
 /**
  * The reducer is the whole keyboard model, so these tests are the specification of
@@ -460,5 +461,74 @@ describe('merge', () => {
         });
         expect(state.rows.map((item) => item.clean_title)).toEqual(['Show', 'Analyzed', 'Show']);
         expect(state.rows[1].status).toBe('review');
+    });
+});
+
+/**
+ * Find and replace. The reducer's part of it is narrow — the matching is pure and lives
+ * in `replace.ts` — but these three properties are what make it safe to point at forty
+ * names at once.
+ */
+describe('find and replace', () => {
+    const request = (over: Partial<ReplaceRequest> = {}): ReplaceRequest => ({
+        find: 'Show',
+        replace: 'Spettacolo',
+        matchCase: true,
+        scope: 'all',
+        ...over
+    });
+
+    it('rewrites every matching proposal in the table', () => {
+        const state = run(initialGridState(season(3)), { type: 'replaceInNames', request: request() });
+        expect(state.rows.map((item) => item.proposed_name)).toEqual([
+            'Spettacolo - S01E01.mkv',
+            'Spettacolo - S01E02.mkv',
+            'Spettacolo - S01E03.mkv'
+        ]);
+        expect(state.notice).toBe('3 nomi sostituiti');
+    });
+
+    it('rewrites only the ticked rows when asked to', () => {
+        const state = run(
+            initialGridState(season(3)),
+            { type: 'setSelection', ids: ['2'] },
+            { type: 'replaceInNames', request: request({ scope: 'selected' }) }
+        );
+        expect(state.rows.map((item) => item.proposed_name)).toEqual([
+            'Show - S01E01.mkv',
+            'Spettacolo - S01E02.mkv',
+            'Show - S01E03.mkv'
+        ]);
+    });
+
+    // Forty names rewritten by a typo in the search box must come back on one Ctrl+Z.
+    it('is one transaction, however many names it touched', () => {
+        const replaced = run(initialGridState(season(3)), { type: 'replaceInNames', request: request() });
+        const undone = gridReducer(replaced, { type: 'undo' });
+        expect(undone.rows.map((item) => item.proposed_name)).toEqual([
+            'Show - S01E01.mkv',
+            'Show - S01E02.mkv',
+            'Show - S01E03.mkv'
+        ]);
+        expect(undone.undo).toEqual([]);
+    });
+
+    /**
+     * The reason it is confined to `proposed_name`. Touching an input marks the row stale
+     * and the shell re-analyses it, which would hand the name straight back to the API and
+     * throw the correction away — so a replace must never look like an input edit.
+     */
+    it('leaves the rows settled: no re-analysis, no lost status', () => {
+        const state = run(initialGridState(season(3)), { type: 'replaceInNames', request: request() });
+        expect(state.staleRowIds).toEqual([]);
+        expect(state.rows.every((item) => item.status === 'matched')).toBe(true);
+        expect(state.rows.every((item) => item.confidence === 0.9)).toBe(true);
+    });
+
+    it('says so instead of recording an empty transaction when nothing matches', () => {
+        const state = run(initialGridState(season(3)), { type: 'replaceInNames', request: request({ find: 'Nulla' }) });
+        expect(state.notice).toBe('Nessun nome proposto contiene «Nulla»');
+        expect(state.undo).toEqual([]);
+        expect(state.rows[0].proposed_name).toBe('Show - S01E01.mkv');
     });
 });

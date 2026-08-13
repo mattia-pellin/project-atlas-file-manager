@@ -1,5 +1,6 @@
 import { MediaItem } from '../api';
-import { COLUMNS, ColumnSpec, EditableField, parseCell } from './columns';
+import { COLUMNS, ColumnSpec, columnIndex, EditableField, parseCell } from './columns';
+import { ReplaceRequest, replacementsFor } from './replace';
 import { sortRows } from './sort';
 import { isRowValid, rowRefusal } from './validation';
 
@@ -70,6 +71,7 @@ export type GridAction =
     | { type: 'sort' }
     | { type: 'clearCell' }
     | { type: 'pasteCell'; text: string }
+    | { type: 'replaceInNames'; request: ReplaceRequest }
     | { type: 'undo' }
     | { type: 'redo' }
     | { type: 'dismissNotice' }
@@ -407,6 +409,37 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
 
         case 'pasteCell':
             return writeRange(state, action.text);
+
+        /**
+         * Find and replace across the proposed names — the whole table, or the ticked
+         * rows.
+         *
+         * The same correction on forty names is the case this exists for, so like every
+         * other bulk write here it lands as **one** transaction: forty names rewritten
+         * by a typo in the search box come back on one Ctrl+Z.
+         *
+         * It goes through `patchFor` like a typed edit, which is what keeps it out of
+         * `staleRowIds`: rewriting a proposal is a decision, not a stale input, so the
+         * rows do not re-analyse themselves and hand back the name that was just
+         * corrected.
+         */
+        case 'replaceInNames': {
+            const edits = replacementsFor(state.rows, state.selected, action.request);
+            if (edits.length === 0) {
+                return { ...state, notice: `Nessun nome proposto contiene «${action.request.find}»` };
+            }
+            const after = new Map(edits.map((edit) => [edit.id, edit.after]));
+            const target = columnIndex('proposed_name');
+            const patches = state.rows
+                .filter((row) => after.has(row.id))
+                .map((row) => patchFor(row, target, after.get(row.id)!))
+                .filter((patch): patch is Patch => patch !== null);
+            return applyPatches(
+                state,
+                patches,
+                `${patches.length} ${patches.length === 1 ? 'nome sostituito' : 'nomi sostituiti'}`
+            );
+        }
 
         case 'undo': {
             const last = state.undo[state.undo.length - 1];

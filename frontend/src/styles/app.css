@@ -1614,6 +1614,106 @@ input[type='checkbox'] {
     font-size: var(--text-sm);
 }
 
+/* ------------------------------------------------------------------- replace */
+
+/* As wide as the palette. What has to fit is two short fields and four specimen names,
+   and a name that runs past the edge is clipped rather than wrapped — a preview line
+   that reflows to three rows stops being scannable, which is the only thing it is for. */
+.panel.replace {
+    width: min(620px, 100%);
+}
+
+/* Find and Replace side by side: they are one instruction, and stacked they read as two
+   unrelated questions with a checkbox between them. */
+.replace-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+}
+
+.replace-fields .field {
+    margin-bottom: 0;
+}
+
+/* The Type cell's control, at panel size: the grid version is 2px tall and capitalises
+   every word, neither of which suits a sentence-length label. */
+.replace-scope {
+    align-self: start;
+}
+
+.replace-scope .choice-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 4px var(--space-3);
+    font-size: var(--text-sm);
+    text-transform: none;
+}
+
+.replace-scope .choice-option:disabled {
+    color: var(--hairline);
+    cursor: default;
+}
+
+.replace-scope .choice-option:disabled:hover {
+    background: transparent;
+    color: var(--hairline);
+}
+
+/* The count on a segment is a quantity, not part of the label. */
+.replace-scope .choice-option .mono {
+    font-size: var(--text-xs);
+    opacity: 0.75;
+}
+
+.replace-preview {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background: var(--console-black);
+}
+
+.replace-count {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--bone);
+}
+
+.replace-list {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.replace-list li {
+    display: grid;
+    gap: 2px;
+    font-size: var(--text-xs);
+}
+
+/* Old over new, one under the other rather than side by side: two names differing by
+   three characters are compared by reading down the same column, and a `→` between
+   them halves the width each one gets. */
+.replace-before {
+    color: var(--dim-steel);
+    text-decoration: line-through;
+}
+
+.replace-after {
+    color: var(--signal-amber);
+}
+
+.replace-before,
+.replace-after {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
 /* -------------------------------------------------------------------- triage */
 
 /* A window over the grid, not a screen. Wider than the other panels because three

@@ -17,6 +17,7 @@ import { ConfidenceOverlay } from './components/ConfidenceOverlay';
 import { ConfirmRename } from './components/ConfirmRename';
 import { Grid } from './components/Grid';
 import { KeymapOverlay } from './components/KeymapOverlay';
+import { ReplaceOverlay } from './components/ReplaceOverlay';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Mode, StatusBar } from './components/StatusBar';
 import { Toast, Toasts } from './components/Toasts';
@@ -26,7 +27,7 @@ import { gridReducer, initialGridState } from './lib/gridReducer';
 import { formatChord, matchesChord } from './lib/keymap';
 import { runPool } from './lib/pool';
 import { needsTriage } from './lib/series';
-import { SCAN_CHORD, TRIAGE_CHORD, TRIAGE_ROW_CHORD, TYPE_CHORD } from './lib/shortcuts';
+import { REPLACE_CHORD, SCAN_CHORD, TRIAGE_CHORD, TRIAGE_ROW_CHORD, TYPE_CHORD } from './lib/shortcuts';
 import { hasStoredSettings, readStoredSettings, saveSettings, Settings, settingsFromConfig } from './lib/settings';
 import './styles/app.css';
 
@@ -392,6 +393,13 @@ const App: React.FC = () => {
                 disabled: counts.selected === 0
             },
             {
+                id: 'replace',
+                label: 'Trova e sostituisci nei nomi proposti',
+                chord: REPLACE_CHORD,
+                run: () => setMode('replace'),
+                disabled: state.rows.length === 0
+            },
+            {
                 id: 'sort',
                 label: 'Riordina la tabella',
                 run: () => dispatch({ type: 'sort' }),
@@ -474,6 +482,11 @@ const App: React.FC = () => {
                 // the harmless failure mode if some browser ever refuses.
                 event.preventDefault();
                 void scan();
+            } else if (matchesChord(event, REPLACE_CHORD)) {
+                // Chrome and Firefox both open History on this one and both hand it over
+                // first, which is the only reason it is bindable at all.
+                event.preventDefault();
+                if (state.rows.length > 0) setMode((current) => (current === 'replace' ? 'grid' : 'replace'));
             } else if (matchesChord(event, TRIAGE_ROW_CHORD)) {
                 event.preventDefault();
                 openTriageRow(state.focusRowId);
@@ -490,7 +503,7 @@ const App: React.FC = () => {
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [counts.selected, mode, openTriage, openTriageRow, scan, state.focusRowId]);
+    }, [counts.selected, mode, openTriage, openTriageRow, scan, state.focusRowId, state.rows.length]);
 
     return (
         <div className="app">
@@ -540,6 +553,19 @@ const App: React.FC = () => {
                     onPick={(items, candidate, extra) => void applyPick(items, candidate, extra)}
                     onSearch={searchByHand}
                     onSkip={() => undefined}
+                    onClose={() => setMode('grid')}
+                />
+            )}
+            {mode === 'replace' && (
+                // Only `proposed_name`, so nothing here can invalidate a match: the rows
+                // keep their status and none of them re-analyses itself afterwards.
+                <ReplaceOverlay
+                    rows={state.rows}
+                    selected={state.selected}
+                    onApply={(request) => {
+                        dispatch({ type: 'replaceInNames', request });
+                        setMode('grid');
+                    }}
                     onClose={() => setMode('grid')}
                 />
             )}
