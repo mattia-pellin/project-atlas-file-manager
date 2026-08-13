@@ -281,7 +281,7 @@ async def test_one_capitalisation_rule_whichever_source_the_title_came_from(mock
 
     item = await enrich_media_item(_item("Doctor Who S05E01.mkv", 5, 1), ["it", "en"])
 
-    assert item.proposed_name == "Doctor Who - S05E01 - Death on the Nile.mkv"
+    assert item.proposed_name == "Doctor Who - S05E01 - Death on The Nile.mkv"
 
 
 async def test_a_range_takes_every_title_from_the_one_map(mocker) -> None:

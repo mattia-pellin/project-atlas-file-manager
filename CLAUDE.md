@@ -978,6 +978,22 @@ TVDB's default names are already title-cased there — which is exactly why the 
 had to be pinned by a test rather than by a live run
 (`test_one_capitalisation_rule_whichever_source_the_title_came_from`).
 
+**A dotted initialism keeps every letter.** `WORD_RE` sees one word per letter, and the
+acronym rule above cannot save them because a single letter is never `len(source) > 1`,
+so the letters that happen to spell a minor word were demoted and TVDB's `Marvel's
+Agents of S.H.I.E.L.D.` reached disk as `Marvel's Agents of S.H.i.e.L.D.`.
+`INITIALISM_RE` matches two or more single letters each followed by a full stop, which
+is a shape ordinary prose does not have — `Mr. Smith` and `Monkey D. Luffy` are one pair
+each and do not match. The title-cased word is returned rather than the source, so a
+lowercase `s.h.i.e.l.d.` is repaired rather than preserved.
+
+**`The` is always capitalised, wherever it falls** — `The Lord of The Rings`,
+`Death on The Nile`. It is a convention choice, made by the user rather than by English
+style, and it departs from how TMDB and TVDB write their own titles; it reaches episode
+titles too, since they go through the same function. `"the"` is therefore deliberately
+absent from `LOWERCASE_WORDS`, and `test_the_is_always_capitalised` pins it so nobody
+puts it back as a tidy-up.
+
 ### How the scoring works
 
 `matching.py`, and it is deliberately dull: `score = title_similarity ×

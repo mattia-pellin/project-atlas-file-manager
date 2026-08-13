@@ -99,8 +99,13 @@ LOWERCASE_WORDS = {
     "with",
     "from",
     "into",
-    "the",
 }
+# "the" is deliberately *not* in that set. English style would lowercase it mid-title,
+# and it was in here for exactly that reason, but the library this app writes to spells
+# it "The" everywhere and the user asked for one rule rather than a position-dependent
+# one: "The Lord of The Rings". It is a convention choice, so it lives here rather than
+# in a comment somewhere downstream — and it is pinned by
+# `test_the_is_always_capitalised`.
 
 # Italian words that elide before a vowel. They govern both sides of their apostrophe:
 # the elision itself stays lowercase mid-sentence and what follows keeps its capital —
@@ -135,6 +140,14 @@ CONTRACTION_SUFFIXES = {"s", "t", "ll", "re", "ve", "m", "d"}
 
 WORD_RE = re.compile(r"[A-Za-z\u00C0-\u00FF]+")
 TRAILING_WORD_RE = re.compile(r"[A-Za-z\u00C0-\u00FF]+$")
+# A dotted initialism \u2014 "S.H.I.E.L.D.", "U.S.A.", "J.R.R. Tolkien". `WORD_RE` sees one
+# word per letter, and the acronym rule below cannot save them because a single letter
+# is never `len(source) > 1`; so the letters that happen to spell a minor word were
+# demoted and TVDB's "Marvel's Agents of S.H.I.E.L.D." was written to disk as
+# "Marvel's Agents of S.H.i.e.L.D.". Two or more single letters each followed by a full
+# stop, with nothing between them, is a shape ordinary prose does not have \u2014 "Mr. Smith"
+# and "Monkey D. Luffy" are one pair each and do not match.
+INITIALISM_RE = re.compile(r"(?:[A-Za-z\u00C0-\u00FF]\.){2,}")
 # Both the ASCII apostrophe and the typographic one turn up in real filenames.
 APOSTROPHES = "'\u2019"
 
@@ -161,6 +174,7 @@ def format_smart_title(text: str) -> str:
     # is *entirely* capitals is shouting rather than an acronym, so there nothing is
     # preserved and the old behaviour stands.
     keep_capitals = any(character.islower() for character in original)
+    initialisms = [match.span() for match in INITIALISM_RE.finditer(original)]
 
     def replacer(match):
         word = match.group(0)
@@ -170,6 +184,13 @@ def format_smart_title(text: str) -> str:
         source = original[start : match.end()]
         if keep_capitals and len(source) > 1 and source.isupper():
             return source
+
+        # A letter inside a dotted initialism is a letter of an acronym, never a word,
+        # so nothing below may lowercase it: "S.H.I.E.L.D.", not "S.H.i.e.L.D.". The
+        # title-cased `word` is returned rather than `source`, so an initialism the
+        # source wrote in lowercase is repaired instead of preserved.
+        if any(begin <= start and match.end() <= end for begin, end in initialisms):
+            return word
 
         if start == 0:
             return word

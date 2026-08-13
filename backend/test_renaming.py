@@ -259,7 +259,7 @@ async def test_a_file_already_named_correctly_reads_as_renamed_not_as_pending(mo
             [{"seasonNumber": 1, "number": 2, "name": "Cat's in the Bag..."}],
         ),
     )
-    name = "Breaking Bad - S01E02 - Cat's in the Bag....mkv"
+    name = "Breaking Bad - S01E02 - Cat's in The Bag....mkv"
     item = await enrich_media_item(_episode_item(name, 1, 2), ["it", "en"])
 
     assert item.proposed_name == name
@@ -279,7 +279,7 @@ async def test_a_file_one_character_away_is_still_a_rename(mocker) -> None:
             [{"seasonNumber": 1, "number": 2, "name": "Cat's in the Bag..."}],
         ),
     )
-    item = await enrich_media_item(_episode_item("breaking bad - S01E02 - Cat's in the Bag....mkv", 1, 2), ["it", "en"])
+    item = await enrich_media_item(_episode_item("breaking bad - S01E02 - Cat's in The Bag....mkv", 1, 2), ["it", "en"])
 
-    assert item.proposed_name == "Breaking Bad - S01E02 - Cat's in the Bag....mkv"
+    assert item.proposed_name == "Breaking Bad - S01E02 - Cat's in The Bag....mkv"
     assert item.status == "matched"
