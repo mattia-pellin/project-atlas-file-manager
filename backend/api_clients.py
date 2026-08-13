@@ -1,5 +1,7 @@
 import asyncio
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any
 
@@ -187,14 +189,44 @@ def _forced_gone(ranked: list[matching.ScoredCandidate], source: str, title: str
     )
 
 
-# Locks to prevent concurrent API flooding for the exact same resource
+# One in-flight fetch per cache key.
+#
+# Every lookup below is check-cache, fetch, store — and the frontend analyses up to
+# `Settings.analyzeConcurrency` files at once. A season pack therefore has N rows
+# reaching an empty entry for the *same* series simultaneously, and all N fetch it:
+# the cache is keyed correctly, it simply has no way to say "someone is already
+# getting this". The lock closes that window, so the first caller fetches and the
+# rest wait and then find the entry.
+#
+# Refcounted rather than kept for the life of the process: the keys carry titles and
+# series ids, so a plain dict grows with every distinct thing ever looked up. The
+# entry is dropped once the last waiter leaves, which is safe because everyone
+# already queued holds a reference to the same Lock object.
 _search_locks: dict[str, asyncio.Lock] = {}
+_lock_waiters: dict[str, int] = {}
 
 
-def get_lock(key: str) -> asyncio.Lock:
-    if key not in _search_locks:
-        _search_locks[key] = asyncio.Lock()
-    return _search_locks[key]
+@asynccontextmanager
+async def single_flight(key: str) -> AsyncIterator[None]:
+    """Serialises concurrent work on one cache key.
+
+    The caller must re-check the cache inside the block: waiting is only useful if
+    what the winner stored is then read instead of fetched again.
+    """
+    lock = _search_locks.get(key)
+    if lock is None:
+        lock = _search_locks[key] = asyncio.Lock()
+    _lock_waiters[key] = _lock_waiters.get(key, 0) + 1
+    try:
+        async with lock:
+            yield
+    finally:
+        remaining = _lock_waiters[key] - 1
+        if remaining:
+            _lock_waiters[key] = remaining
+        else:
+            _lock_waiters.pop(key, None)
+            _search_locks.pop(key, None)
 
 
 class TMDBClient:
@@ -314,21 +346,25 @@ class TVDBClientV4:
         if not bypass_cache and cache_key in cache:
             return cache.get(cache_key)
 
-        payload = {"apikey": self.api_key}
-        if self.pin:
-            payload["pin"] = self.pin
+        async with single_flight(cache_key):
+            if not bypass_cache and cache_key in cache:
+                return cache.get(cache_key)
 
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(f"{self.BASE_URL}/login", json=payload, timeout=10.0)
-                response.raise_for_status()
-                token = response.json().get("data", {}).get("token")
-                # Token usually valid for 1 month, let's cache for 24h
-                cache.set(cache_key, token, expire=86400)
-                return token
-            except Exception as e:
-                print(f"TVDB Auth failed: {e}")
-                return ""
+            payload = {"apikey": self.api_key}
+            if self.pin:
+                payload["pin"] = self.pin
+
+            async with httpx.AsyncClient() as client:
+                try:
+                    response = await client.post(f"{self.BASE_URL}/login", json=payload, timeout=10.0)
+                    response.raise_for_status()
+                    token = response.json().get("data", {}).get("token")
+                    # Token usually valid for 1 month, let's cache for 24h
+                    cache.set(cache_key, token, expire=86400)
+                    return token
+                except Exception as e:
+                    print(f"TVDB Auth failed: {e}")
+                    return ""
 
     async def verify_key(self) -> KeyStatus:
         """A fresh `POST /login`, which *is* TVDB's authentication.
@@ -386,8 +422,7 @@ class TVDBClientV4:
         if not bypass_cache and cache_key in cache:
             return cache[cache_key]
 
-        lock = get_lock(cache_key)
-        async with lock:
+        async with single_flight(cache_key):
             # Recheck cache inside lock to avoid redundant work
             if not bypass_cache and cache_key in cache:
                 return cache[cache_key]
@@ -537,8 +572,7 @@ class TVDBClientV4:
             val = cache[cache_key]
             return val if val != "__NONE__" else None
 
-        lock = get_lock(cache_key)
-        async with lock:
+        async with single_flight(cache_key):
             if not bypass_cache and cache_key in cache:
                 val = cache[cache_key]
                 return val if val != "__NONE__" else None
@@ -592,8 +626,7 @@ class TVDBClientV4:
             val = cache[cache_key]
             return val if val != "__NONE__" else None
 
-        lock = get_lock(cache_key)
-        async with lock:
+        async with single_flight(cache_key):
             if not bypass_cache and cache_key in cache:
                 val = cache[cache_key]
                 return val if val != "__NONE__" else None
@@ -647,57 +680,67 @@ class TVDBClientV4:
         if not bypass_cache and cache_key in cache:
             return cache[cache_key]
 
-        try:
-            data = await self._request(f"/series/{series_id}/extended", token)
-            series_info = data.get("data", {})
+        # The most expensive call in the file, and the one most often asked for in
+        # parallel: every episode of a season resolves the same series, and the
+        # disambiguation loop above asks for up to three of them per row. Without the
+        # single flight a 24-file pack paginated the whole episode list 72 times.
+        async with single_flight(cache_key):
+            if not bypass_cache and cache_key in cache:
+                return cache[cache_key]
 
-            episodes = series_info.get("episodes")
+            try:
+                data = await self._request(f"/series/{series_id}/extended", token)
+                series_info = data.get("data", {})
 
-            # TVDB v4 completely omits episodes in extended payload for massive series > 500 eps (like SpongeBob)
-            # We must fetch them manually using the paginated episodes endpoint
-            if episodes is None:
-                episodes = []
-                page = 0
-                while True:
-                    ep_data = await self._request(f"/series/{series_id}/episodes/default", token, params={"page": page})
-                    page_eps = ep_data.get("data", {}).get("episodes", [])
-                    episodes.extend(page_eps)
+                episodes = series_info.get("episodes")
 
-                    links = ep_data.get("links", {})
-                    if links.get("next") and links.get("next") != links.get("self"):
-                        page += 1
-                    else:
-                        break
+                # TVDB v4 completely omits episodes in extended payload for massive series > 500 eps (like SpongeBob)
+                # We must fetch them manually using the paginated episodes endpoint
+                if episodes is None:
+                    episodes = []
+                    page = 0
+                    while True:
+                        ep_data = await self._request(
+                            f"/series/{series_id}/episodes/default", token, params={"page": page}
+                        )
+                        page_eps = ep_data.get("data", {}).get("episodes", [])
+                        episodes.extend(page_eps)
 
-            # Episode count per season, which is what the zero-padding is derived from.
-            # It must NOT be the series total: One Piece has 1100+ episodes overall but
-            # only 61 in season 1, and Plex expects S01E10, not S01E0010.
-            # Specials (season 0) are excluded — they are not padded against.
-            season_episode_counts: dict[int, int] = {}
-            for ep in episodes:
-                season_number = ep.get("seasonNumber", 0)
-                if season_number > 0:
-                    season_episode_counts[season_number] = season_episode_counts.get(season_number, 0) + 1
+                        links = ep_data.get("links", {})
+                        if links.get("next") and links.get("next") != links.get("self"):
+                            page += 1
+                        else:
+                            break
 
-            # Fetch localized series translation
-            series_translation = await self.get_series_translation(series_id, language_prefs, bypass_cache)
+                # Episode count per season, which is what the zero-padding is derived from.
+                # It must NOT be the series total: One Piece has 1100+ episodes overall but
+                # only 61 in season 1, and Plex expects S01E10, not S01E0010.
+                # Specials (season 0) are excluded — they are not padded against.
+                season_episode_counts: dict[int, int] = {}
+                for ep in episodes:
+                    season_number = ep.get("seasonNumber", 0)
+                    if season_number > 0:
+                        season_episode_counts[season_number] = season_episode_counts.get(season_number, 0) + 1
 
-            year_raw = series_info.get("year", "")
-            first_aired = series_info.get("firstAired", "")
-            year = year_raw or (first_aired[:4] if first_aired else None)
+                # Fetch localized series translation
+                series_translation = await self.get_series_translation(series_id, language_prefs, bypass_cache)
 
-            result = {
-                "tvdb_id": series_id,
-                "name": series_translation or series_info.get("name"),
-                "season_episode_counts": season_episode_counts,
-                "episodes_raw": episodes,
-                "year": year,
-            }
-            cache.set(cache_key, result, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
-            return result
-        except Exception as e:
-            print(f"TVDB series extended failed: {e}")
-            return None
+                year_raw = series_info.get("year", "")
+                first_aired = series_info.get("firstAired", "")
+                year = year_raw or (first_aired[:4] if first_aired else None)
+
+                result = {
+                    "tvdb_id": series_id,
+                    "name": series_translation or series_info.get("name"),
+                    "season_episode_counts": season_episode_counts,
+                    "episodes_raw": episodes,
+                    "year": year,
+                }
+                cache.set(cache_key, result, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+                return result
+            except Exception as e:
+                print(f"TVDB series extended failed: {e}")
+                return None
 
 
 def calculate_padding(total_items: int) -> int:

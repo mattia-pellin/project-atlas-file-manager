@@ -362,6 +362,23 @@ Replaying one choice across a whole series is therefore free: the search is
 cached on the title and `get_series_extended` on the id, so the second and
 subsequent episodes make no request at all.
 
+That last sentence used to be true only in serial. The replay goes through the
+same pool as everything else, so N episodes hit the same *empty* cache entry at
+once and all N fetched it — the entry is read before the request and written
+after, and nothing held that window. Every cached lookup in `api_clients.py` is
+now wrapped in `single_flight(cache_key)`: the first caller fetches, the rest
+wait on its lock and then read what it stored. It matters most for
+`get_series_extended`, which paginates the whole episode list and is asked for up
+to `MAX_DISAMBIGUATION_CANDIDATES` times per row — a 24-file pack fetched it 72
+times. The lock entries are refcounted and dropped by the last waiter out.
+
+It is a **request-count** fix, not a latency one: the rows that wait would
+otherwise have fetched in parallel and finished at about the same time. The
+latency shows up indirectly, in not tripping the provider's rate limit and the
+five-attempt exponential backoff behind it. `backend/test_single_flight.py`
+pins the counts, gating the first request open so the assertion cannot pass with
+the lock removed.
+
 ### Absolute episode numbers
 
 `absolute_episode` is the other correction that can only be made once the series is
@@ -947,7 +964,6 @@ Tracked so they aren't rediscovered. Each has a test.
 - `diskcache` is created at the relative path `.cache`, so in the container it
   resolves to `/app/.cache`, which is not a volume — **the API cache is lost
   on every redeploy.**
-- `_search_locks` grows without bound.
 - `CORSMiddleware` uses `allow_origins=["*"]` together with
   `allow_credentials=True`, which the CORS spec disallows.
 
