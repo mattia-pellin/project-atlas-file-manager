@@ -244,6 +244,87 @@ describe('selection', () => {
         const state = run(initialGridState(season(3)), { type: 'selectAll' }, { type: 'setRows', rows: season(3) });
         expect(state.selected.size).toBe(0);
     });
+
+    // --- The tick must not outlive the validity that earned it ------------------
+    // Every gate above runs at the moment of ticking. These pin the other half: a
+    // write that invalidates an *already* ticked row has to take the tick with it,
+    // because `App.tsx` posts `selected` to /api/rename without re-checking.
+
+    it('drops the tick when the proposal it was for is deleted', () => {
+        const state = run(
+            initialGridState(season(3)),
+            { type: 'selectAll' },
+            { type: 'focusCell', rowId: '2', column: PROPOSED },
+            { type: 'pasteCell', text: '' }
+        );
+        expect([...state.selected].sort()).toEqual(['1', '3']);
+    });
+
+    it('drops the tick when an edit makes a cell invalid', () => {
+        const state = run(
+            initialGridState(season(3)),
+            { type: 'selectAll' },
+            { type: 'focusCell', rowId: '2', column: EPISODE },
+            { type: 'beginEdit', initial: 'nope' },
+            { type: 'commitEdit', then: 'stay' }
+        );
+        expect([...state.selected].sort()).toEqual(['1', '3']);
+    });
+
+    it('drops the tick when the proposal is edited into the name on disk', () => {
+        // Renaming it would write nothing, so the tick would overstate the batch and
+        // `resolve_rename_target` would refuse it anyway.
+        const state = run(
+            initialGridState(season(3)),
+            { type: 'selectAll' },
+            { type: 'focusCell', rowId: '2', column: PROPOSED },
+            { type: 'pasteCell', text: 'Show.S01E02.mkv' }
+        );
+        expect([...state.selected].sort()).toEqual(['1', '3']);
+    });
+
+    it('gives the tick back when undo restores the proposal', () => {
+        // The tick is derived from the row, not remembered, so this falls out of the
+        // rule rather than needing one of its own — but it is what the user expects.
+        const broken = run(
+            initialGridState(season(3)),
+            { type: 'selectAll' },
+            { type: 'focusCell', rowId: '2', column: PROPOSED },
+            { type: 'pasteCell', text: '' }
+        );
+        expect(broken.selected.has('2')).toBe(false);
+        const restored = run(broken, { type: 'undo' }, { type: 'toggleSelection' });
+        expect([...restored.selected].sort()).toEqual(['1', '2', '3']);
+    });
+
+    it('drops the tick when a re-analysis comes back with nothing', () => {
+        const state = run(
+            initialGridState(season(3)),
+            { type: 'selectAll' },
+            { type: 'mergeRows', rows: [row({ id: '2', proposed_name: null, status: 'error' })] }
+        );
+        expect([...state.selected].sort()).toEqual(['1', '3']);
+    });
+
+    it('will not tick an invalid row through setSelection either', () => {
+        // The two callers tick by status, and a status is not a promise the row can be
+        // written: a `matched` row whose proposal was blanked by hand must stay out.
+        const rows = [row({ id: '1' }), row({ id: '2', proposed_name: '', status: 'matched' })];
+        const state = run(initialGridState(rows), { type: 'setSelection', ids: ['1', '2'] });
+        expect([...state.selected]).toEqual(['1']);
+    });
+
+    it('keeps the same selection object when nothing was invalidated', () => {
+        // An ordinary edit must not hand the grid a new Set to re-render against.
+        const ticked = run(initialGridState(season(3)), { type: 'selectAll' });
+        const edited = run(
+            ticked,
+            { type: 'focusCell', rowId: '2', column: TITLE },
+            { type: 'beginEdit', initial: 'Breaking Bad' },
+            { type: 'commitEdit', then: 'stay' }
+        );
+        expect(edited.selected).toBe(ticked.selected);
+    });
 });
 
 describe('fill down', () => {

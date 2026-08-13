@@ -138,17 +138,39 @@ const staleFrom = (patches: Patch[]): string[] => [
     ...new Set(patches.filter((patch) => patch.field !== 'proposed_name').map((patch) => patch.id))
 ];
 
+/**
+ * The ticks that survive a change to the rows.
+ *
+ * `isRowValid` gates all three ways a row is *ticked* — Space, Ctrl+A, Shift+Arrow —
+ * but nothing re-checked it afterwards, so a tick outlived the validity that earned it.
+ * Delete a ticked row's proposal, or type a bad season into it, and the tick stayed on
+ * a row the grid was painting red; `App.tsx` then posted it to `/api/rename` with the
+ * rest of the batch. The tick is what the user reads as "this file is going to be
+ * written" and it is the only thing the confirmation counts, so the last gate has to
+ * hold after every write, not just at the moment of ticking.
+ *
+ * The same set comes back when nothing was dropped, so an ordinary edit does not hand
+ * the grid a new selection object to re-render against.
+ */
+const survivingSelection = (selected: ReadonlySet<string>, rows: MediaItem[]): ReadonlySet<string> => {
+    if (selected.size === 0) return selected;
+    const surviving = new Set(rows.filter((row) => selected.has(row.id) && isRowValid(row)).map((row) => row.id));
+    return surviving.size === selected.size ? selected : surviving;
+};
+
 /** Applies a transaction and records it, so undo restores every cell it touched at once. */
 const applyPatches = (state: GridState, patches: Patch[], notice: string | null = null): GridState => {
     if (patches.length === 0) return state;
     const byId = groupById(patches);
+    const rows = state.rows.map((row) => {
+        const rowPatches = byId.get(row.id);
+        return rowPatches ? patchRow(row, rowPatches) : row;
+    });
 
     return {
         ...state,
-        rows: state.rows.map((row) => {
-            const rowPatches = byId.get(row.id);
-            return rowPatches ? patchRow(row, rowPatches) : row;
-        }),
+        rows,
+        selected: survivingSelection(state.selected, rows),
         undo: [...state.undo, patches],
         redo: [],
         notice,
@@ -257,7 +279,10 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
 
         case 'mergeRows': {
             const updates = new Map(action.rows.map((row) => [row.id, row]));
-            return { ...state, rows: state.rows.map((row) => updates.get(row.id) ?? row) };
+            const rows = state.rows.map((row) => updates.get(row.id) ?? row);
+            // An answer coming back invalidates a tick as surely as an edit does: a
+            // re-analysis that finds nothing clears the proposal the tick was for.
+            return { ...state, rows, selected: survivingSelection(state.selected, rows) };
         }
 
         /**
@@ -359,8 +384,14 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
         case 'clearSelection':
             return { ...state, selected: new Set() };
 
-        case 'setSelection':
-            return { ...state, selected: new Set(action.ids) };
+        case 'setSelection': {
+            // Through the same gate as every other way of ticking. The two callers tick
+            // by status, and a status is not a promise that the row can be written: an
+            // auto-ticked `matched` row whose proposal was blanked by hand would come
+            // straight back.
+            const wanted = new Set(action.ids);
+            return { ...state, selected: survivingSelection(wanted, state.rows) };
+        }
 
         case 'fillDown': {
             const source = focusedRow(state);
