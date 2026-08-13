@@ -88,6 +88,23 @@ def test_sanitize_name(raw: str, expected: str) -> None:
         # A single capital is not an acronym either: "I" has to stay eligible for the
         # contraction rule above, and "Rocky V" title-cases to itself anyway.
         ("rocky V", "Rocky V"),
+        # ...but a capital "I" the source wrote is the English pronoun, not the Italian
+        # article. See `test_a_capital_i_is_the_pronoun_not_the_article`.
+        ("How I Met Your Mother", "How I Met Your Mother"),
+        # The article it collides with still falls when the source wrote it lowercase,
+        # and in a shouted title even a capital one falls.
+        ("tutti i sogni del mondo", "Tutti i Sogni del Mondo"),
+        ("TUTTI I SOGNI DEL MONDO", "Tutti i Sogni del Mondo"),
+        # No other single letter is treated that way: a source that capitalises every
+        # word is the common case and says nothing about "a", "e", "o" or "è".
+        ("Once Upon A Time", "Once Upon a Time"),
+        ("La Vita E Bella", "La Vita e Bella"),
+        ("La Vita È Bella", "La Vita è Bella"),
+        # A letter run glued to a digit is part of that token. See
+        # `test_a_letter_run_glued_to_a_digit_is_not_a_new_word`.
+        ("The 5th Wave", "The 5th Wave"),
+        ("Se7en", "Se7en"),
+        ("ワンピース 3D", "ワンピース 3D"),
         # Empty input
         ("", ""),
     ],
@@ -146,6 +163,109 @@ def test_a_dotted_acronym_keeps_every_letter() -> None:
     assert format_smart_title("W.I.T.C.H.") == "W.I.T.C.H."
     # One initial is not an initialism, and the words around it keep their own rules.
     assert format_smart_title("monkey d. luffy e il re dei pirati") == "Monkey D. Luffy e il Re dei Pirati"
+
+
+def test_a_capital_i_is_the_pronoun_not_the_article() -> None:
+    """ "How I Met Your Mother" was renamed "How i Met Your Mother", at `matched` 1.00.
+
+    `LOWERCASE_WORDS` holds "i" for the Italian plural article, and the acronym rule
+    cannot reach a single letter because it requires `len(source) > 1` — deliberately,
+    so that the contraction rule keeps working. So every English "I" mid-title was
+    demoted, silently, on a row confident enough to be auto-ticked: 208 episodes into
+    a folder Plex does not have.
+    """
+    assert format_smart_title("How I Met Your Mother") == "How I Met Your Mother"
+    assert format_smart_title("Am I OK?") == "Am I OK?"
+    assert format_smart_title("The Day I Became a Woman") == "The Day I Became a Woman"
+    assert format_smart_title("The Day I Became A Woman") == "The Day I Became a Woman"
+    # The article it collides with, written lowercase and shouted. A wholly-capital
+    # title is shouting rather than an acronym, so there the capital is not believed.
+    assert format_smart_title("tutti i sogni del mondo") == "Tutti i Sogni del Mondo"
+    assert format_smart_title("TUTTI I SOGNI DEL MONDO") == "Tutti i Sogni del Mondo"
+
+
+def test_only_i_is_promoted_and_never_the_other_single_letters() -> None:
+    """The other single letters in LOWERCASE_WORDS must keep falling.
+
+    The first version of the rule above kept *any* single capital the source wrote,
+    which is much worse than the bug it fixed: a source that capitalises every word is
+    the ordinary case — it is how TMDB writes some titles and how every scene filename
+    is built — so "Once Upon A Time" and "La Vita E Bella" stopped being corrected, and
+    within one title the convention started depending on word length
+    ("Diary Of A Wimpy Kid" -> "Diary of A Wimpy Kid").
+
+    "i" is the only one where the capital carries information, because English "I" is
+    a word. "a", "e", "o" and "è" are articles and conjunctions in both languages and
+    are never capitalised as words, so a capital one is just a shouty source.
+    """
+    assert format_smart_title("Once Upon A Time") == "Once Upon a Time"
+    assert format_smart_title("Diary Of A Wimpy Kid") == "Diary of a Wimpy Kid"
+    assert format_smart_title("La Vita E Bella") == "La Vita e Bella"
+    assert format_smart_title("La Vita È Bella") == "La Vita è Bella"
+    assert format_smart_title("La Bella E La Bestia") == "La Bella e la Bestia"
+    assert format_smart_title("Tutto O Niente") == "Tutto o Niente"
+
+
+def test_the_one_title_the_capital_i_rule_gets_wrong() -> None:
+    """An Italian "i" a title-casing source wrote capital is read as the pronoun.
+
+    This is the price of the rule above and it is pinned so that the trade is visible
+    rather than discovered. "Tutti I Sogni Del Mondo" is what a scene filename looks
+    like; the API writes the article lowercase, which is the form that is corrected.
+    Telling the two apart needs the language of the rest of the title, which is a
+    guess, and a guess in this file produces a confidently wrong name.
+
+    Same reason, from the other side: the target case is still wrong when shouted.
+    """
+    assert format_smart_title("Tutti I Sogni Del Mondo") == "Tutti I Sogni del Mondo"
+    assert format_smart_title("HOW I MET YOUR MOTHER") == "How i Met Your Mother"
+
+
+def test_a_letter_run_glued_to_a_digit_is_not_a_new_word() -> None:
+    """ "The 5th Wave" came out "The 5Th Wave", and "Se7en" came out "Se7En".
+
+    `str.title()` reads a digit as a word boundary, so the letters after it start a
+    new word and get capitalised. The replacer never undid it: the fragment begins at
+    an index whose predecessor is neither an apostrophe nor a sentence mark, so none
+    of the existing rules looked at it.
+
+    The source decides the case, which is what keeps "Avatar 3D" from becoming "3d".
+    """
+    assert format_smart_title("The 5th Wave") == "The 5th Wave"
+    assert format_smart_title("Se7en") == "Se7en"
+    assert format_smart_title("The 40th Anniversary") == "The 40th Anniversary"
+    assert format_smart_title("Avatar 3D") == "Avatar 3D"
+    assert format_smart_title("3rd Rock from the Sun") == "3rd Rock from The Sun"
+    # A shouted title is being re-cased anyway, so the ordinary rules stand.
+    assert format_smart_title("SE7EN") == "Se7en"
+    assert format_smart_title("THE 5TH WAVE") == "The 5th Wave"
+
+
+def test_a_script_without_case_is_not_a_shouted_title() -> None:
+    """ "ワンピース 3D" must not become "ワンピース 3d".
+
+    `keep_capitals` is "the source wrote a lowercase letter somewhere", which a title
+    in a script that has no case never does — so CJK and hangul titles are classified
+    as shouting and their one Latin token was being demoted, while the same title in
+    Cyrillic kept it. Behaviour differing by script is not something a reader can
+    predict, and One Piece is reachable on TVDB precisely by its Japanese name.
+    """
+    assert format_smart_title("ワンピース 3D") == "ワンピース 3D"
+    assert format_smart_title("도깨비 4K") == "도깨비 4K"
+    assert format_smart_title("Мастер 3D") == "Мастер 3D"
+
+
+def test_a_ligature_does_not_corrupt_the_name() -> None:
+    """ "ﬂying 3rd Rock" came out "Flying 3d Rock" — a letter short, and plausible.
+
+    The rules index the source with offsets taken from `text.title()`, which is length-
+    preserving for everything except a ligature: "ﬁ" becomes "Fi", so every offset past
+    it slips and the source slice returned is a different word's letters. The lengths
+    are compared up front now and plain title-casing stands when they disagree, which
+    is worse casing but never a wrong string.
+    """
+    assert format_smart_title("ﬂying 3rd Rock") == "Flying 3Rd Rock"
+    assert format_smart_title("ﬁlm 5th") == "Film 5Th"
 
 
 def test_sanitize_name_never_produces_path_separators() -> None:

@@ -164,9 +164,17 @@ def format_smart_title(text: str) -> str:
         return ""
 
     original = text
-    # `str.title()` preserves length, so an offset into the result indexes the same
-    # word in the source.
+    # An offset into the title-cased result is used below to index the same word in
+    # the source, which holds only while the two are the same length.
     text = text.title()
+    # `str.title()` is length-preserving for everything that reaches a real title, but
+    # not for a ligature: "ﬁ" becomes "Fi", one character becoming two. Every offset
+    # after one slips by a character, so the rules below read a *different* word's
+    # letters out of the source and return them verbatim — "ﬂying 3rd Rock" came out
+    # "Flying 3d Rock", a letter short and looking perfectly plausible. When the lengths
+    # disagree the source cannot be consulted at all, so plain title-casing stands.
+    if len(original) != len(text):
+        return text
 
     # A word the source wrote in full capitals is an acronym or a numeral, and
     # title-casing it produces a name Plex does not have: "Stargate Sg-1" instead of
@@ -195,6 +203,22 @@ def format_smart_title(text: str) -> str:
         if start == 0:
             return word
 
+        # A letter run glued to a digit belongs to that token, not to a new word:
+        # "The 5th Wave", "Se7en", "3rd Rock", "Avatar 3D". `str.title()` capitalises
+        # it because a digit reads as a word boundary, so the source is the only thing
+        # that knows the intended case.
+        #
+        # The one source not to be believed is a shouted title, which is being re-cased
+        # anyway: "SE7EN" -> "Se7en". That is narrowed to a run of *more than one*
+        # capital, because `keep_capitals` reads "no lowercase letter anywhere" as
+        # shouting and a title in a script without case has none — so "ワンピース 3D"
+        # and "도깨비 4K" would lose their capital while "Мастер 3D" kept it, the
+        # behaviour differing by script for no reason a reader could guess.
+        if text[start - 1].isdigit():
+            if not keep_capitals and len(source) > 1 and source.isupper():
+                return word_lower
+            return source
+
         if text[start - 1] in APOSTROPHES:
             return _after_apostrophe(text, start, word)
 
@@ -208,6 +232,21 @@ def format_smart_title(text: str) -> str:
             return word_lower if word_lower in ITALIAN_ELISIONS else word
 
         if word_lower in LOWERCASE_WORDS:
+            # A capital "I" the source wrote is the English pronoun, which is a word
+            # and is capitalised wherever it sits: "How I Met Your Mother", "Am I OK?".
+            # `LOWERCASE_WORDS` holds "i" for the Italian plural article, and the
+            # acronym rule above cannot reach it because a single letter is never
+            # `len(source) > 1`, so every English "I" mid-title was being demoted.
+            #
+            # Only "I", and only when the source capitalised it. The other single
+            # letters in the set — "a", "e", "o" — are articles and conjunctions in
+            # both languages and are never words that demand a capital, so a capital
+            # one is just a source that capitalises everything: "Once Upon A Time" and
+            # "La Vita E Bella" have to keep falling to "a" and "e". And the gate on
+            # `keep_capitals` demotes even the "I" in a shouted title, which is being
+            # re-cased anyway: "TUTTI I SOGNI DEL MONDO" -> "Tutti i Sogni del Mondo".
+            if keep_capitals and source == "I":
+                return source
             return word_lower
 
         return word
