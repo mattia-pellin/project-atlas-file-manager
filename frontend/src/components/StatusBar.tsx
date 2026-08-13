@@ -1,6 +1,6 @@
 import React from 'react';
 import { Chord } from '../lib/keymap';
-import { TRIAGE_CHORD, TRIAGE_ROW_CHORD } from '../lib/shortcuts';
+import { REPLACE_CHORD, TRIAGE_CHORD, TRIAGE_ROW_CHORD } from '../lib/shortcuts';
 import { Counts } from './CommandBar';
 import { Kbd } from './Kbd';
 
@@ -36,6 +36,7 @@ const HINTS: Record<Mode, Hint[]> = {
         { chord: 'enter', what: 'modifica' },
         { chord: 'space', what: 'spunta' },
         { chord: 'mod+d', what: 'ricopia' },
+        { chord: REPLACE_CHORD, what: 'sostituisci' },
         { chord: TRIAGE_ROW_CHORD, what: 'triage riga' },
         { chord: TRIAGE_CHORD, what: 'triage completo' },
         { chord: 'mod+enter', what: 'rinomina' },
