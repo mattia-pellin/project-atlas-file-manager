@@ -974,14 +974,17 @@ the rollback journal; re-enable the rule in that commit.
   had drifted badly — the published line was already at `v1.9.0` while
   `package.json` still said `1.0.0` — which is why the redesign is versioned
   **2.0.0**, continuing the tags rather than the stale file.
-  Note that the `v*` tags exist as tags only: no GitHub *Release* object was
-  ever cut from them, so the releases API answers empty and
-  `get_latest_release` 404s. `git ls-remote --tags origin` is the honest check.
+  Note that `v1.0.0`–`v1.9.0` exist as tags only: no GitHub *Release* object was
+  ever cut from them. `v2.0.0` is the first with one, so `list_releases` returns
+  exactly that one entry and says nothing about the nine before it —
+  `git ls-remote --tags origin` remains the honest check for what was tagged.
+  Creating a release needs the REST API: the GitHub MCP is read-only there
+  (`get_latest_release`, `get_release_by_tag`, `list_releases`, and no create).
 
-### Versioning: bump it yourself, tag only when asked
+### Versioning and commits: bump and commit yourself, tag only when asked
 
-Every change carries its own version bump, made in the same edit as the change,
-without being asked:
+Every change carries its own version bump **and its own commit**, made with the
+change rather than swept up later, without being asked:
 
 - **Build.** `BUILD` in `frontend/src/buildinfo.ts`, `+1`, on **every** change
   that reaches the browser. It is the identifier the Informazioni panel leads
@@ -992,6 +995,19 @@ without being asked:
   or that changes how the UI behaves, *major* for a change that invalidates how
   the tool is used or breaks the API contract. Re-run
   `npm install --package-lock-only` so `package-lock.json` follows.
+- **Commit.** One local commit per thing the user asked for, as soon as that
+  thing works and its gate is green — not one commit at the end of a session.
+  The bump belongs *in* that commit: `BUILD 7` and the change that earned it
+  are the same fact, and splitting them leaves a build number in history that
+  points at nothing. The subject says what changed and why it is different, not
+  which files moved (`fix(ui): hold the verb widths so the bar stops jumping`,
+  not `update CommandBar.tsx`). Do not push and do not `git add .env`.
+
+Granularity is the point. This repo's history has several commits worth of work
+squashed into one — `feat(ui): the third review round` is sixty-five files —
+and that commit cannot be read, reverted, or bisected against. A rename that
+scatters a Plex library is found by asking *which change did this*, so the
+answer has to be one change.
 
 **Do not tag.** A `v*` tag is a deploy — it triggers the GHCR build and the
 Portainer webhook — so cutting one is the user's decision. Say which tag the
