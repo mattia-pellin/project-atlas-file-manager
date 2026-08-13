@@ -62,11 +62,11 @@ def _mock_tvdb(mocker, series: dict, *, verdict: str = "matched", confidence: fl
         # must not be able to use a match without seeing its confidence.
         return Decision(verdict=verdict, confidence=confidence, reason="", payload=series)
 
-    async def translation(*args, **kwargs):
-        return None
+    async def episode_names(*args, **kwargs):
+        return {}
 
     instance.search_series.side_effect = search
-    instance.get_episode_translation.side_effect = translation
+    instance.get_episode_names.side_effect = episode_names
 
     mocker.patch(
         "os.getenv", side_effect=lambda key, default=None: "dummy" if "KEY" in key or "PIN" in key else default
@@ -206,11 +206,11 @@ async def test_a_low_confidence_match_still_proposes_a_name_but_is_not_matched(m
             payload=_tvdb_series("Doctor Who", {5: 40}, [{"seasonNumber": 5, "number": 1, "name": "The Tomb"}]),
         )
 
-    async def translation(*args, **kwargs):
-        return None
+    async def episode_names(*args, **kwargs):
+        return {}
 
     instance.search_series.side_effect = search
-    instance.get_episode_translation.side_effect = translation
+    instance.get_episode_names.side_effect = episode_names
     mocker.patch(
         "os.getenv", side_effect=lambda key, default=None: "dummy" if "KEY" in key or "PIN" in key else default
     )

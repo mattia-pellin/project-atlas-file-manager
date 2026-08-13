@@ -424,6 +424,16 @@ async def enrich_media_item(
             pad = calculate_padding(series_data.get("season_episode_counts", {}).get(season_number, 0))
             s_str = f"{season_number:02d}"
 
+            # Every localised title of this series, in one request. It used to be one
+            # request per episode, which is the only cost in the pipeline that scaled
+            # with the size of the batch: a season pack made twenty-four of them.
+            # Fetched for the chosen series only — the candidates the scoring rejected
+            # never get here — and after the absolute-number check, which can still
+            # refuse the row and would have wasted the call.
+            episode_names = (
+                await client.get_episode_names(selected_key, language_prefs, bypass_cache) if selected_key else {}
+            )
+
             ep_titles = []
             for num in range(start_ep, end_ep + 1):
                 ep_id = None
@@ -434,8 +444,9 @@ async def enrich_media_item(
                         ep_title = ep.get("name", "")
                         break
                 if ep_id:
-                    # Ask API to pull prioritized translation for this specific episode
-                    translated_title = await client.get_episode_translation(ep_id, language_prefs, bypass_cache)
+                    # Absent when no language in the chain has a title for this episode,
+                    # in which case the default name off `episodes_raw` stands.
+                    translated_title = episode_names.get(ep_id)
                     if translated_title:
                         ep_title = format_smart_title(translated_title)
                 # Only for a single episode: the filename carries one title, so it

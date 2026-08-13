@@ -56,6 +56,31 @@ TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w185"
 # A candidate blurb is a tell-apart aid, not reading material.
 MAX_OVERVIEW_CHARS = 300
 
+# TVDB speaks ISO 639-2/T where the rest of the app speaks 639-1. An unlisted code is
+# passed through unchanged: TVDB answers an unknown one with a 404, which the callers
+# read as "not in this language" and step past.
+TVDB_LANGUAGES = {
+    "it": "ita",
+    "en": "eng",
+    "fr": "fra",
+    "es": "spa",
+    "de": "deu",
+    "ja": "jpn",
+    "zh": "zho",
+    "nl": "nld",
+    "ru": "rus",
+    "fi": "fin",
+    "sv": "swe",
+    "da": "dan",
+    "hu": "hun",
+    "pt": "por",
+    "pl": "pol",
+}
+
+
+def tvdb_language(code: str) -> str:
+    return TVDB_LANGUAGES.get(code.lower(), code.lower())
+
 
 def _movie_candidate(result: dict[str, Any]) -> matching.Candidate:
     """A TMDB search result, reduced for scoring.
@@ -564,59 +589,83 @@ class TVDBClientV4:
         # decision, but the UI still has to offer every candidate for a manual override.
         return replace(decision, payload=series_data, ranked=tuple(all_ranked))
 
-    async def get_episode_translation(
-        self, ep_id: int, language_prefs: list[str], bypass_cache: bool = False
-    ) -> str | None:
-        cache_key = get_cache_key("tvdb_ep_trans", ep_id, ",".join(language_prefs))
+    async def _walk_episode_pages(
+        self, series_id: int, token: str, language: str | None = None
+    ) -> list[dict[str, Any]]:
+        """The series' whole episode list, following TVDB's pagination.
+
+        `language` selects the translated variant, whose payload is field-for-field the
+        untranslated one — `id`, `number`, `seasonNumber` and `absoluteNumber` included
+        — with `name` localised and left null where that language has no title.
+        """
+        suffix = f"/{language}" if language else ""
+        episodes: list[dict[str, Any]] = []
+        page = 0
+        while True:
+            data = await self._request(f"/series/{series_id}/episodes/default{suffix}", token, params={"page": page})
+            episodes.extend(data.get("data", {}).get("episodes", []))
+
+            links = data.get("links", {})
+            if links.get("next") and links.get("next") != links.get("self"):
+                page += 1
+            else:
+                return episodes
+
+    async def get_episode_names(
+        self, series_id: int, language_prefs: list[str], bypass_cache: bool = False
+    ) -> dict[int, str]:
+        """Every episode title of a series, best available language first, keyed by episode id.
+
+        This replaced one `/episodes/{id}/translations/{lang}` request *per episode*,
+        which is the one cost in the pipeline that scaled with the number of files: a
+        twenty-four file season pack made twenty-four of them. TVDB serves the whole
+        series' localised list from one paginated endpoint, so the pack now costs one
+        request — and the disambiguation loop never triggers it at all, because the map
+        is only built for the series the name is actually being made from.
+
+        The language chain is preserved exactly, just resolved in bulk instead of per
+        episode: a later language only fills the titles an earlier one left blank, and
+        an id absent from the result means no language had a title for it. The caller
+        then keeps the default name off `episodes_raw`, which is what it did when the
+        per-episode call returned None.
+        """
+        cache_key = get_cache_key("tvdb_ep_names_v1", series_id, ",".join(language_prefs))
         if not bypass_cache and cache_key in cache:
-            val = cache[cache_key]
-            return val if val != "__NONE__" else None
+            return cache[cache_key]
 
         async with single_flight(cache_key):
             if not bypass_cache and cache_key in cache:
-                val = cache[cache_key]
-                return val if val != "__NONE__" else None
+                return cache[cache_key]
 
             token = await self.get_token(bypass_cache)
             if not token:
-                return None
+                return {}
 
-            lang_map = {
-                "it": "ita",
-                "en": "eng",
-                "fr": "fra",
-                "es": "spa",
-                "de": "deu",
-                "ja": "jpn",
-                "zh": "zho",
-                "nl": "nld",
-                "ru": "rus",
-                "fi": "fin",
-                "sv": "swe",
-                "da": "dan",
-                "hu": "hun",
-                "pt": "por",
-                "pl": "pol",
-            }
-
-            for lang in language_prefs:
-                tvdb_lang = lang_map.get(lang.lower(), lang.lower())
-
+            names: dict[int, str] = {}
+            for language in language_prefs:
                 try:
-                    data = await self._request(f"/episodes/{ep_id}/translations/{tvdb_lang}", token)
-                    name = data.get("data", {}).get("name")
-                    if name:
-                        cache.set(cache_key, name, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
-                        return name
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 404:
-                        continue
-                    print(f"TVDB ep translation err for {lang}: {e}")
+                    episodes = await self._walk_episode_pages(series_id, token, tvdb_language(language))
                 except Exception as e:
-                    print(f"TVDB ep translation err: {e}")
+                    # A language TVDB does not carry answers 404. Step past it, exactly
+                    # as the per-episode call did, and let the next one try.
+                    print(f"TVDB episode names failed for {language}: {e}")
+                    continue
 
-            cache.set(cache_key, "__NONE__", expire=3600)
-            return None
+                complete = True
+                for episode in episodes:
+                    ep_id = episode.get("id")
+                    name = (episode.get("name") or "").strip()
+                    if not name:
+                        complete = False
+                    elif ep_id is not None and ep_id not in names:
+                        names[ep_id] = name
+
+                # Nothing left for a later language to fill.
+                if episodes and complete:
+                    break
+
+            cache.set(cache_key, names, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
+            return names
 
     async def get_series_translation(
         self, series_id: int, language_prefs: list[str], bypass_cache: bool = False
@@ -635,28 +684,9 @@ class TVDBClientV4:
             if not token:
                 return None
 
-            lang_map = {
-                "it": "ita",
-                "en": "eng",
-                "fr": "fra",
-                "es": "spa",
-                "de": "deu",
-                "ja": "jpn",
-                "zh": "zho",
-                "nl": "nld",
-                "ru": "rus",
-                "fi": "fin",
-                "sv": "swe",
-                "da": "dan",
-                "hu": "hun",
-                "pt": "por",
-                "pl": "pol",
-            }
-
             for lang in language_prefs:
-                tvdb_lang = lang_map.get(lang.lower(), lang.lower())
                 try:
-                    data = await self._request(f"/series/{series_id}/translations/{tvdb_lang}", token)
+                    data = await self._request(f"/series/{series_id}/translations/{tvdb_language(lang)}", token)
                     name = data.get("data", {}).get("name")
                     if name:
                         cache.set(cache_key, name, expire=int(os.getenv("CACHE_TTL_HOURS", 24)) * 3600)
@@ -697,20 +727,7 @@ class TVDBClientV4:
                 # TVDB v4 completely omits episodes in extended payload for massive series > 500 eps (like SpongeBob)
                 # We must fetch them manually using the paginated episodes endpoint
                 if episodes is None:
-                    episodes = []
-                    page = 0
-                    while True:
-                        ep_data = await self._request(
-                            f"/series/{series_id}/episodes/default", token, params={"page": page}
-                        )
-                        page_eps = ep_data.get("data", {}).get("episodes", [])
-                        episodes.extend(page_eps)
-
-                        links = ep_data.get("links", {})
-                        if links.get("next") and links.get("next") != links.get("self"):
-                            page += 1
-                        else:
-                            break
+                    episodes = await self._walk_episode_pages(series_id, token)
 
                 # Episode count per season, which is what the zero-padding is derived from.
                 # It must NOT be the series total: One Piece has 1100+ episodes overall but

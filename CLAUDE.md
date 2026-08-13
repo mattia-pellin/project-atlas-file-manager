@@ -298,8 +298,9 @@ POST /api/scan     → paths.resolve_within_roots()  400 if outside MEDIA_ROOT
 
 POST /api/analyze  → analyzer.enrich_media_item()
                      ├ TMDBClient.search_movie()      movies
-                     └ TVDBClientV4.search_series()   series + per-episode
-                                                      translations
+                     └ TVDBClientV4.search_series()   series
+                       TVDBClientV4.get_episode_names() every episode title,
+                                                      one request per series
                      → matching.rank_candidates() → matching.decide()
                      → format_smart_title() → sanitize_name()
                    ← MediaItem + proposed_name, status, confidence, candidates[]
@@ -379,6 +380,43 @@ five-attempt exponential backoff behind it. `backend/test_single_flight.py`
 pins the counts, gating the first request open so the assertion cannot pass with
 the lock removed.
 
+**Episode titles are fetched per series, not per episode.** The single flight
+above fixed the calls that *repeat*; this was the one that genuinely *scaled* —
+`/episodes/{id}/translations/{lang}` ran once for every episode being renamed, so
+a season pack paid it once per file. `get_episode_names()` uses TVDB's
+`/series/{id}/episodes/default/{lang}`, which serves the whole series' localised
+list from one paginated endpoint, keyed by episode id.
+
+Verified against live TVDB before the swap, because three things had to hold and
+none of them is documented: the translated payload is field-for-field the
+untranslated one (`absoluteNumber`, `id`, `seasonNumber` all present, so
+`episodes_raw` and `locate_absolute_episode` are untouched); an untranslated
+episode comes back `name: null` rather than silently falling back to English; and
+that null falls exactly where the per-episode endpoint answered 404. So the
+language chain is preserved rather than approximated — a later language fills
+only the titles an earlier one left blank, and an id absent from the map means the
+default name off `episodes_raw` stands, which is what a `None` used to mean.
+
+Measured A/B on thirteen `Doctor Who S05E*` rows, cold cache, pool of 10 —
+identical proposed names both times:
+
+| | Before | After |
+| --- | --- | --- |
+| `/episodes/{id}/translations/{lang}` | 26 | 0 |
+| `/series/{id}/episodes/default/{lang}` | 0 | 4 |
+| **Total TVDB requests** | **38** | **16** |
+
+Note the 26: thirteen episodes × two languages, because classic Who has no Italian
+titles, so every episode paid the fallback too. The four are one series × two
+languages × two pages.
+
+`enrich_media_item` builds the map once for the *chosen* series, after the
+absolute-number check — so a refused row spends nothing, and the candidates the
+scoring rejected never trigger it. One asymmetry is deliberately preserved: a
+*translated* title goes through `format_smart_title`, a default name off
+`episodes_raw` does not. It predates this change and it decides the exact string
+on disk, so `test_episode_names.py` pins both sides of it.
+
 ### Absolute episode numbers
 
 `absolute_episode` is the other correction that can only be made once the series is
@@ -413,8 +451,8 @@ apply-to-series replay down — the checkbox goes dead while the field holds a n
   than by whatever the live API returned that day.
 - `backend/paths.py` — containment. Every client-supplied path goes through it;
   nothing else may build a path from request data.
-- `backend/api_clients.py` — TMDB/TVDB clients, `diskcache`, retry, per-key
-  `asyncio.Lock`, and `calculate_padding()`.
+- `backend/api_clients.py` — TMDB/TVDB clients, `diskcache`, retry,
+  `single_flight()`, `get_episode_names()` and `calculate_padding()`.
 - `backend/parser.py` — thin `guessit` wrapper; normalises multi-episode
   lists to a `"10-12"` string and rejoins `alternative_title` onto the title.
 - `naming_cases.toml` / `backend/naming_cases.py` — the hand-written

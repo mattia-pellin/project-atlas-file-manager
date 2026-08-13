@@ -149,13 +149,13 @@ def _mock_tvdb(mocker, entries: list[dict], extended: dict[str, dict]):
         calls.append(str(series_id))
         return extended.get(str(series_id))
 
-    async def translation(self, ep_id, language_prefs, bypass_cache=False):
-        return None
+    async def episode_names(self, series_id, language_prefs, bypass_cache=False):
+        return {}
 
     mocker.patch.object(TVDBClientV4, "_search_series_results", search)
     mocker.patch.object(TVDBClientV4, "get_token", token)
     mocker.patch.object(TVDBClientV4, "get_series_extended", series_extended)
-    mocker.patch.object(TVDBClientV4, "get_episode_translation", translation)
+    mocker.patch.object(TVDBClientV4, "get_episode_names", episode_names)
     _keys_present(mocker)
     return calls
 
