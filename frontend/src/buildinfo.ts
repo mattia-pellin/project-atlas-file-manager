@@ -22,7 +22,7 @@ import { version } from '../package.json';
  */
 
 /** Bumped on every change that reaches the browser. See the note above. */
-export const BUILD = 3;
+export const BUILD = 4;
 
 export const VERSION = version;
 

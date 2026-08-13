@@ -625,13 +625,42 @@ body.is-resizing-column {
     background: rgba(255, 255, 255, 0.012);
 }
 
+/* Selection and focus are both amber, because both are "the thing you are acting on".
+   They are told apart by *form* rather than by intensity — the same rule the status dots
+   follow: selection is the left edge and a wash, focus is a rule above and below.
+   Intensity alone could not work here. A focused row used to be a 0.03 white wash, which
+   `.is-selected` then overwrote at equal specificity, so with forty rows ticked the
+   cursor was not merely hard to find, it was drawn identically to its neighbours. */
 .grid-row.is-focus-row {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.045);
 }
 
 .grid-row.is-selected {
     border-left-color: var(--signal-amber);
     background: var(--signal-amber-dim);
+}
+
+/* Ticked *and* under the cursor. The wash lifts rather than being replaced: the tick is
+   the more consequential fact — this file is going to be written — so it keeps the
+   background, and the rules below carry the focus. */
+.grid-row.is-focus-row.is-selected {
+    background: rgba(216, 161, 58, 0.26);
+}
+
+/* The rules themselves, on a pseudo-element rather than on the row's own box-shadow:
+   `.grid-cell.is-in-range` and `.is-cell-invalid` paint their own backgrounds, and a
+   child background covers a parent's inset shadow, which would break the line exactly
+   where a paste range crosses the focused row. Positioned, so it paints above the
+   cells and — the row being `display: grid` — is taken out of flow rather than becoming
+   one more column. No border on the row itself, so nothing reflows as the cursor
+   moves; the rules are drawn inside the row box and cost no height. */
+.grid-row.is-focus-row::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-top: 1px solid var(--signal-amber);
+    border-bottom: 1px solid var(--signal-amber);
 }
 
 .grid-row.is-invalid .grid-value {
