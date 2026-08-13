@@ -42,7 +42,7 @@ def load_env(path: Path) -> None:
     """Puts the keys from `.env` into the environment.
 
     Nothing in `backend/` calls `load_dotenv()` — in production the keys are injected by
-    docker-compose — so without this every row comes back "Could not find a match",
+    docker-compose — so without this every row comes back "Nessuna corrispondenza trovata",
     which reads as an API fault rather than a missing key. Values are never printed.
     """
     if not path.exists():

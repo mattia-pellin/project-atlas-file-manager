@@ -86,7 +86,7 @@ class ConfigOut(BaseModel):
     thresholds: ThresholdsOut
     max_candidates: int
     # Booleans, never the keys themselves. A missing key currently presents as
-    # "Could not find a match", which reads as an API fault rather than a
+    # "Nessuna corrispondenza trovata", which reads as an API fault rather than a
     # configuration one; this is what lets the UI say which it is.
     tmdb_configured: bool
     tvdb_configured: bool
@@ -96,7 +96,7 @@ class KeyStatus(BaseModel):
     """The result of actually using a key, rather than of finding one set.
 
     Four states, not two, because they call for four different actions and three of
-    them used to arrive as the same "Could not find a match":
+    them used to arrive as the same "Nessuna corrispondenza trovata":
 
     - `missing`     — nothing in the environment. Set it.
     - `ok`          — the provider accepted it.

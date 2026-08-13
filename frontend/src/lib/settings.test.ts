@@ -27,6 +27,17 @@ describe('loadSettings', () => {
         expect(loadSettings(JSON.stringify({ reviewThreshold: -1 })).reviewThreshold).toBe(DEFAULT_SETTINGS.reviewThreshold);
     });
 
+    it('rejects a pool size that is not a whole number in range', () => {
+        // Nothing downstream caps the fan-out, so a stored `0` would analyse nothing at
+        // all and a stored `500` would open five hundred requests at TMDB in one go.
+        for (const analyzeConcurrency of [0, -3, 101, 6.5, '8', null]) {
+            expect(loadSettings(JSON.stringify({ analyzeConcurrency })).analyzeConcurrency).toBe(
+                DEFAULT_SETTINGS.analyzeConcurrency
+            );
+        }
+        expect(loadSettings(JSON.stringify({ analyzeConcurrency: 3 })).analyzeConcurrency).toBe(3);
+    });
+
     it('resets both thresholds when review sits above match', () => {
         // The backend refuses this pair outright, so a stored one has to be repaired
         // before it is ever sent.

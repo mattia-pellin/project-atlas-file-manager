@@ -71,14 +71,14 @@ describe('languagesError', () => {
     });
 
     it('names every bad code', () => {
-        expect(languagesError(['it', 'xx'])).toBe('xx is not a language code');
-        expect(languagesError(['xx', 'zz'])).toBe('xx, zz are not language codes');
+        expect(languagesError(['it', 'xx'])).toBe('xx non è un codice lingua');
+        expect(languagesError(['xx', 'zz'])).toBe('xx, zz non sono codici lingua');
     });
 
     it('refuses an empty chain', () => {
         // `lang_prefs=` reaches the backend as one empty preference and every title
         // comes back in whatever the provider defaults to.
-        expect(languagesError([])).toBe('At least one language is needed');
+        expect(languagesError([])).toBe('Serve almeno una lingua');
     });
 });
 

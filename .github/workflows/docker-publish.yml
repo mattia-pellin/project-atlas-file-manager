@@ -41,6 +41,10 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          # Stamped into the bundle, so the running app can name the commit it was
+          # built from. See the "Informazioni" panel.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

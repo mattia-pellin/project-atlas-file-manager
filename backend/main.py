@@ -73,6 +73,7 @@ async def analyze_item(
     forced_key: str | None = None,
     match_threshold: float | None = None,
     review_threshold: float | None = None,
+    absolute_episode: int | None = None,
 ):
     """Re-analyze a single item against the APIs.
 
@@ -81,13 +82,26 @@ async def analyze_item(
     cached search. Sending the same key for every episode of a series is how one
     triage decision is applied to the whole show.
 
+    `absolute_episode` is the number a file carries when the library numbers episodes
+    absolutely — `One Piece - 1015.mkv`. The chosen series' own episode list resolves
+    it into a season and an episode, which is the only place that mapping exists.
+
     The thresholds are per-request rather than server state, so the user can move
     the confidence bands from the settings panel without two concurrent analyses
     disagreeing about which bands were in force.
     """
     prefs = [lang.strip() for lang in lang_prefs.split(",")]
     thresholds = _thresholds(match_threshold, review_threshold)
-    return await enrich_media_item(item, prefs, bypass_cache, forced_key=forced_key, thresholds=thresholds)
+    if absolute_episode is not None and absolute_episode < 1:
+        raise HTTPException(status_code=400, detail="absolute_episode deve essere almeno 1")
+    return await enrich_media_item(
+        item,
+        prefs,
+        bypass_cache,
+        forced_key=forced_key,
+        thresholds=thresholds,
+        absolute_episode=absolute_episode,
+    )
 
 
 def _thresholds(match: float | None, review: float | None) -> matching.Thresholds:
@@ -102,9 +116,9 @@ def _thresholds(match: float | None, review: float | None) -> matching.Threshold
     )
     for name, value in (("match_threshold", resolved.match), ("review_threshold", resolved.review)):
         if not 0.0 <= value <= 1.0:
-            raise HTTPException(status_code=400, detail=f"{name} must be between 0 and 1")
+            raise HTTPException(status_code=400, detail=f"{name} deve essere compreso tra 0 e 1")
     if resolved.review > resolved.match:
-        raise HTTPException(status_code=400, detail="review_threshold must not exceed match_threshold")
+        raise HTTPException(status_code=400, detail="review_threshold non può superare match_threshold")
     return resolved
 
 
@@ -186,7 +200,7 @@ async def get_config():
 
 
 async def _missing_key(variable: str) -> KeyStatus:
-    return KeyStatus(state="missing", detail=f"{variable} is not set")
+    return KeyStatus(state="missing", detail=f"{variable} non è impostata")
 
 
 @app.get("/api/keys", response_model=KeyCheckOut)
@@ -195,7 +209,7 @@ async def check_keys():
 
     `/api/config` only reports whether a key is *set*, which is the question that was
     never really being asked: a key that is present but revoked, or a provider that is
-    unreachable, both produce rows that read "Could not find a match" — the same words
+    unreachable, both produce rows that read "Nessuna corrispondenza trovata" — the same words
     a genuine no-match produces. One authenticated call each settles it, and the four
     states are four different things to do about it.
 

@@ -37,13 +37,17 @@ describe('confidenceText', () => {
         expect(confidenceText(scanned({ confidence: undefined }))).toBeNull();
     });
 
-    it('prints two decimals for a scored row', () => {
-        expect(confidenceText(scanned({ confidence: 1 }))).toBe('1.00');
-        expect(confidenceText(scanned({ confidence: 0.5 }))).toBe('0.50');
+    // Percent, and the same percent the threshold slider shows: a row at 50% and a
+    // review threshold of 45% have to be comparable by eye, which `0.50` against `45%`
+    // was not.
+    it('prints a percentage for a scored row', () => {
+        expect(confidenceText(scanned({ confidence: 1 }))).toBe('100%');
+        expect(confidenceText(scanned({ confidence: 0.5 }))).toBe('50%');
+        expect(confidenceText(scanned({ confidence: 0.455 }))).toBe('46%');
     });
 
     it('prints a zero score rather than hiding it', () => {
-        expect(confidenceText(scanned({ confidence: 0 }))).toBe('0.00');
+        expect(confidenceText(scanned({ confidence: 0 }))).toBe('0%');
     });
 });
 

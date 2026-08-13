@@ -1,8 +1,6 @@
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import App from './App';
-import { ConfirmRename } from './components/ConfirmRename';
-import { MediaItem } from './api';
 
 /**
  * A smoke test, deliberately shallow.
@@ -20,7 +18,7 @@ describe('App', () => {
         expect(html).toContain('Project:');
         expect(html).toContain('Atlas');
         expect(html).toContain('Files');
-        expect(html).toContain('Nothing scanned yet');
+        expect(html).toContain('Avvia la scansione');
     });
 
     it('shows the counts and the keys for the current mode in the status bar', () => {
@@ -28,43 +26,13 @@ describe('App', () => {
         const html = renderToString(<App />);
 
         expect(html).toContain('status-counts');
-        expect(html).toContain('0 files');
-        expect(html).toContain('fill down');
+        expect(html).toContain('0 file');
+        expect(html).toContain('ricopia');
     });
 });
 
 // The rows themselves are covered in components/Grid.test.tsx, which needs a real DOM:
 // `renderToString` gives the virtualizer no scroll element, so it emits no rows at all
-// and a row-level crash renders as a pass.
-
-describe('ConfirmRename', () => {
-    const item = (overrides: Partial<MediaItem> = {}): MediaItem => ({
-        id: '1',
-        original_path: '/media/Show.S01E01.mkv',
-        original_name: 'Show.S01E01.mkv',
-        media_type: 'episode',
-        clean_title: 'Show',
-        season: 1,
-        episode: 1,
-        proposed_name: 'Show - S01E01 - Pilot.mkv',
-        status: 'matched',
-        confidence: 0.9,
-        ...overrides
-    });
-
-    it('shows both names in full, for every file', () => {
-        // Nothing is summarised: the exact string is the only thing that can be checked
-        // before the filesystem is touched.
-        const html = renderToString(<ConfirmRename items={[item()]} onConfirm={() => undefined} onCancel={() => undefined} />);
-        expect(html).toContain('Show.S01E01.mkv');
-        expect(html).toContain('Show - S01E01 - Pilot.mkv');
-        expect(html).toContain('confirm-list');
-    });
-
-    it('warns when a file that was never confidently matched is in the batch', () => {
-        const html = renderToString(
-            <ConfirmRename items={[item(), item({ id: '2', status: 'review' })]} onConfirm={() => undefined} onCancel={() => undefined} />
-        );
-        expect(html).toContain('never confidently matched');
-    });
-});
+// and a row-level crash renders as a pass. The confirmation is in
+// components/ConfirmRename.test.tsx for the same reason — its chord lives in an effect,
+// which server rendering never runs.

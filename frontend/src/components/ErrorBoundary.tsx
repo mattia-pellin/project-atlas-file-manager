@@ -38,13 +38,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
         return (
             <div className="crash" role="alert">
-                <p className="crash-title">The interface crashed while drawing.</p>
+                <p className="crash-title">L’interfaccia è andata in errore mentre disegnava.</p>
                 <p className="crash-hint">
-                    Nothing on disk was touched — a rename only happens when you confirm one. Reload to carry on.
+                    Sul disco non è stato toccato niente — una rinomina avviene solo quando la confermi. Ricarica per
+                    proseguire.
                 </p>
                 <pre className="crash-detail mono">{error.message}</pre>
                 <button type="button" className="button primary" onClick={() => window.location.reload()}>
-                    Reload
+                    Ricarica
                 </button>
             </div>
         );

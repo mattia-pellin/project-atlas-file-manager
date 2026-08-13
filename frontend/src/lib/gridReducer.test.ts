@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MediaItem } from '../api';
 import { columnIndex } from './columns';
-import { GridAction, gridReducer, GridState, initialGridState } from './gridReducer';
+import { GridAction, gridReducer, GridState, initialGridState, rangeRowIds } from './gridReducer';
 
 /**
  * The reducer is the whole keyboard model, so these tests are the specification of
@@ -209,7 +209,21 @@ describe('selection', () => {
         const invalid = row({ episode: 'not-an-episode' });
         const state = run(initialGridState([invalid]), { type: 'toggleSelection' });
         expect(state.selected.size).toBe(0);
-        expect(state.notice).toMatch(/cannot be renamed/);
+        expect(state.notice).toMatch(/non è ancora rinominabile/);
+    });
+
+    it('refuses a row nothing was found for, and does not send the user hunting for a red cell', () => {
+        const unmatched = row({ proposed_name: null, status: 'error', confidence: undefined });
+        const state = run(initialGridState([unmatched]), { type: 'toggleSelection' });
+        expect(state.selected.size).toBe(0);
+        expect(state.notice).toMatch(/Nessun nome proposto/);
+    });
+
+    it('leaves an unmatched row out of select-all', () => {
+        const rows = [row({ id: '1' }), row({ id: '2', proposed_name: null, status: 'error' })];
+        const state = run(initialGridState(rows), { type: 'selectAll' });
+        expect([...state.selected]).toEqual(['1']);
+        expect(state.notice).toMatch(/1 riga saltata/);
     });
 
     it('extends from the anchor over valid rows only', () => {
@@ -250,7 +264,7 @@ describe('fill down', () => {
 
     it('says what to do instead of silently doing nothing', () => {
         const state = run(initialGridState(season(3)), { type: 'focusCell', rowId: '1', column: TITLE }, { type: 'fillDown' });
-        expect(state.notice).toMatch(/Select the rows/);
+        expect(state.notice).toMatch(/Seleziona prima le righe/);
     });
 
     it('never touches a column other than the focused one', () => {
@@ -261,6 +275,81 @@ describe('fill down', () => {
             { type: 'fillDown' }
         );
         expect(state.rows.map((item) => item.episode)).toEqual([1, 2, 3]);
+    });
+
+    it('prefers the extended range over the tick set when there is one', () => {
+        // The two are different intents: the ticks are the rename queue and can hold rows
+        // far from the cursor, while an extended range is what the user just drew.
+        const state = run(
+            initialGridState(season(4)),
+            { type: 'focusCell', rowId: '1', column: TITLE },
+            { type: 'setSelection', ids: ['4'] },
+            { type: 'move', rows: 1, columns: 0, extend: true },
+            { type: 'fillDown' }
+        );
+        expect(state.rows.map((item) => item.clean_title)).toEqual(['Show', 'Show', 'Show', 'Show']);
+        expect(state.rows[3].status).toBe('matched');
+    });
+});
+
+describe('vertical cell range', () => {
+    it('is one row until the cursor is extended', () => {
+        const state = run(initialGridState(season(3)), { type: 'focusCell', rowId: '2', column: TITLE });
+        expect(rangeRowIds(state)).toEqual(['2']);
+    });
+
+    it('runs anchor-to-focus whichever way it was drawn', () => {
+        const down = run(
+            initialGridState(season(4)),
+            { type: 'focusCell', rowId: '2', column: TITLE },
+            { type: 'move', rows: 2, columns: 0, extend: true }
+        );
+        expect(rangeRowIds(down)).toEqual(['2', '3', '4']);
+
+        const up = run(
+            initialGridState(season(4)),
+            { type: 'focusCell', rowId: '3', column: TITLE },
+            { type: 'move', rows: -2, columns: 0, extend: true }
+        );
+        expect(rangeRowIds(up)).toEqual(['1', '2', '3']);
+    });
+
+    it('pastes one clipboard into every cell of the range, as one undo', () => {
+        const state = run(
+            initialGridState(season(3)),
+            { type: 'focusCell', rowId: '1', column: TITLE },
+            { type: 'move', rows: 2, columns: 0, extend: true },
+            { type: 'pasteCell', text: 'Breaking Bad' }
+        );
+        expect(state.rows.map((item) => item.clean_title)).toEqual(['Breaking Bad', 'Breaking Bad', 'Breaking Bad']);
+        // An edited input column invalidates the proposal derived from it.
+        expect(state.rows.map((item) => item.status)).toEqual(['pending', 'pending', 'pending']);
+        expect([...state.staleRowIds].sort()).toEqual(['1', '2', '3']);
+
+        const undone = gridReducer(state, { type: 'undo' });
+        expect(undone.rows.map((item) => item.clean_title)).toEqual(['Show', 'Show', 'Show']);
+    });
+
+    it('empties every cell of the range on delete', () => {
+        const state = run(
+            initialGridState(season(3)),
+            { type: 'focusCell', rowId: '2', column: TITLE },
+            { type: 'move', rows: 1, columns: 0, extend: true },
+            { type: 'clearCell' }
+        );
+        expect(state.rows.map((item) => item.clean_title)).toEqual(['Show', undefined, undefined]);
+    });
+
+    it('refuses a column that cannot be written', () => {
+        // `writeRange` is the last gate before a value that would reach the backend, so a
+        // read-only column has to be a no-op rather than a silently dropped patch.
+        const before = run(
+            initialGridState(season(3)),
+            { type: 'focusCell', rowId: '1', column: STATUS },
+            { type: 'move', rows: 2, columns: 0, extend: true }
+        );
+        const after = gridReducer(before, { type: 'pasteCell', text: 'matched' });
+        expect(after.rows).toEqual(before.rows);
     });
 });
 
@@ -278,7 +367,7 @@ describe('undo', () => {
     });
 
     it('reports an empty history rather than doing nothing', () => {
-        expect(gridReducer(initialGridState([row()]), { type: 'undo' }).notice).toBe('Nothing to undo');
+        expect(gridReducer(initialGridState([row()]), { type: 'undo' }).notice).toBe('Niente da annullare');
     });
 });
 
@@ -313,6 +402,53 @@ describe('cycling a choice cell', () => {
         const state = run(initialGridState([row()]), { type: 'focusCell', rowId: '1', column: TITLE }, { type: 'cycleChoice' });
         expect(state.rows[0].clean_title).toBe('Show');
         expect(state.staleRowIds).toEqual([]);
+    });
+
+    // What the Alt+T chord does: the cursor is almost never parked on Type when the type
+    // turns out to be wrong, and walking to that column first is the tax the chord removes.
+    it('flips the named column whatever the cursor is on', () => {
+        const state = run(
+            initialGridState([row()]),
+            { type: 'focusCell', rowId: '1', column: PROPOSED },
+            { type: 'cycleChoice', column: TYPE }
+        );
+        expect(state.rows[0].media_type).toBe('movie');
+        expect(state.focusColumn).toBe(PROPOSED);
+        expect(state.staleRowIds).toEqual(['1']);
+    });
+});
+
+/**
+ * The order is the data's, not the view's, so the reducer owns it — a table sorted only
+ * on screen would leave the keyboard model walking the rows in a different order from
+ * the one the user can see.
+ */
+describe('order', () => {
+    const film = (id: string, title: string): MediaItem =>
+        row({ id, original_name: `${title}.mkv`, media_type: 'movie', clean_title: title, season: undefined, episode: undefined });
+
+    it('sorts a scan: movies first, then by title', () => {
+        const state = gridReducer(initialGridState([]), {
+            type: 'setRows',
+            rows: [row({ id: 'ep', clean_title: 'Alpha' }), film('m2', 'Zulu'), film('m1', 'Bravo')]
+        });
+        expect(state.rows.map((item) => item.id)).toEqual(['m1', 'm2', 'ep']);
+    });
+
+    it('keeps the cursor on the same file when the sort moves it', () => {
+        const rows = [film('m2', 'Zulu'), film('m1', 'Bravo')];
+        const state = run(initialGridState([]), { type: 'setRows', rows }, { type: 'focusCell', rowId: 'm2', column: TITLE });
+        expect(state.rows[0].id).toBe('m1');
+        expect(state.focusRowId).toBe('m2');
+    });
+
+    // Analysis rewrites the title and the year, so the shell re-sorts once a batch is in.
+    // Doing it inside `mergeRows` would shuffle the grid under a user who is typing in it.
+    it('leaves a merged row where it was until the shell asks for a sort', () => {
+        const start = gridReducer(initialGridState([]), { type: 'setRows', rows: [film('m1', 'Bravo'), film('m2', 'Zulu')] });
+        const merged = gridReducer(start, { type: 'mergeRows', rows: [film('m1', 'Zzz')] });
+        expect(merged.rows.map((item) => item.id)).toEqual(['m1', 'm2']);
+        expect(gridReducer(merged, { type: 'sort' }).rows.map((item) => item.id)).toEqual(['m2', 'm1']);
     });
 });
 

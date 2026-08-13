@@ -16,14 +16,32 @@ export interface Settings {
     matchThreshold: number;
     /** Below this no name is proposed at all. */
     reviewThreshold: number;
+    /** How many `/api/analyze` requests are allowed in flight at once. */
+    analyzeConcurrency: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
     directory: '/media',
     languages: 'it,en',
     matchThreshold: 0.75,
-    reviewThreshold: 0.45
+    reviewThreshold: 0.45,
+    analyzeConcurrency: 10
 };
+
+/**
+ * The pool is the *only* thing bounding the fan-out: the backend has no cap of its own
+ * and `api_clients.py` opens a fresh `httpx.AsyncClient` per request, so this number is
+ * simultaneously how fast a season pack fills in and how hard TMDB/TVDB get hit. The
+ * ceiling is therefore a real limit rather than a widget convenience — past it the
+ * providers start rate-limiting, which surfaces as rows failing for no visible reason.
+ */
+export const POOL_LIMITS = { min: 1, max: 100 } as const;
+
+export const isPoolSize = (value: unknown): value is number =>
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= POOL_LIMITS.min &&
+    value <= POOL_LIMITS.max;
 
 const STORAGE_KEY = 'atlas_settings_v1';
 
@@ -58,7 +76,10 @@ export const loadSettings = (raw: string | null): Settings => {
         directory: typeof stored.directory === 'string' && stored.directory ? stored.directory : DEFAULT_SETTINGS.directory,
         languages: typeof stored.languages === 'string' && stored.languages ? stored.languages : DEFAULT_SETTINGS.languages,
         matchThreshold: isFraction(stored.matchThreshold) ? stored.matchThreshold : DEFAULT_SETTINGS.matchThreshold,
-        reviewThreshold: isFraction(stored.reviewThreshold) ? stored.reviewThreshold : DEFAULT_SETTINGS.reviewThreshold
+        reviewThreshold: isFraction(stored.reviewThreshold) ? stored.reviewThreshold : DEFAULT_SETTINGS.reviewThreshold,
+        analyzeConcurrency: isPoolSize(stored.analyzeConcurrency)
+            ? stored.analyzeConcurrency
+            : DEFAULT_SETTINGS.analyzeConcurrency
     };
 
     // The backend rejects review > match with a 400. Correcting it here rather than

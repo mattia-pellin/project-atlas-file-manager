@@ -90,6 +90,7 @@ const render = (rows: MediaItem[]): string => {
                 onOpenTriage={() => undefined}
                 onCopy={() => undefined}
                 onPaste={() => undefined}
+                onExplainConfidence={() => undefined}
             />
         );
     });
@@ -112,19 +113,41 @@ describe('Grid', () => {
         expect(html).toContain('role="row"');
     });
 
-    it('prints no confidence until there is one, and two decimals once there is', () => {
-        expect(render([scanned()])).not.toContain('class="confidence');
-        expect(render([scanned({ confidence: 0.5, proposed_name: 'Doctor Who - S05E02.mkv' })])).toContain('0.50');
+    it('prints no confidence until there is one, and a percentage once there is', () => {
+        expect(render([scanned()])).not.toMatch(/\d+%/);
+        expect(render([scanned({ confidence: 0.5, proposed_name: 'Doctor Who - S05E02.mkv' })])).toContain('50%');
+    });
+
+    it('gives the score its own column, with a way to ask what it means', () => {
+        const html = render([scanned()]);
+        expect(html).toContain('C.S.');
+        expect(html).toContain('Che cos\'è il confidence score');
+    });
+
+    it('offers the reorder in the status header, and only with rows to reorder', () => {
+        // Sorting is on demand now: analysis rewrites the very fields the order is built
+        // from, so an automatic re-sort moved the row out from under whoever was editing it.
+        expect(render([scanned()])).toContain('Riordina la tabella');
+        expect(render([])).toContain('disabled=""');
     });
 
     it('draws every status as a dot with its own accessible name, never as the word', () => {
-        const statuses: MediaItem['status'][] = ['pending', 'matched', 'review', 'renaming', 'error', 'success'];
+        const statuses: MediaItem['status'][] = [
+            'pending',
+            'analyzing',
+            'matched',
+            'review',
+            'renaming',
+            'error',
+            'success'
+        ];
         const html = render(statuses.map((status, index) => scanned({ id: String(index), status })));
 
         expect(html.match(/class="status-dot"/g)).toHaveLength(statuses.length);
-        // Six states, six distinct names: a dot that reads the same as another dot is
-        // no better than no dot, and the name is all a screen reader gets.
-        const names = new Set(Array.from(html.matchAll(/aria-label="([^"]+)"/g), (match) => match[1]));
+        // One distinct name per state: a dot that reads the same as another dot is no
+        // better than no dot, and the name is all a screen reader gets. Scoped to the
+        // dots themselves — the header carries an aria-label of its own.
+        const names = new Set(Array.from(html.matchAll(/role="img" aria-label="([^"]+)"/g), (match) => match[1]));
         expect(names.size).toBe(statuses.length);
     });
 });

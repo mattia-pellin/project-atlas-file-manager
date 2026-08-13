@@ -166,7 +166,7 @@ def _forced_match(
     return matching.Decision(
         verdict="matched",
         confidence=1.0,
-        reason=f"Chosen by hand: {chosen.candidate.label}",
+        reason=f"Scelto a mano: {chosen.candidate.label}",
         payload=payload,
         ranked=tuple(ranked),
     )
@@ -182,7 +182,7 @@ def _forced_gone(ranked: list[matching.ScoredCandidate], source: str, title: str
     return matching.Decision(
         verdict="rejected",
         confidence=0.0,
-        reason=f"The chosen candidate is no longer among {source}'s results for {title!r} — pick again",
+        reason=f"Il candidato scelto non è più tra i risultati {source} per {title!r} — scegline un altro",
         ranked=tuple(ranked),
     )
 
@@ -228,13 +228,13 @@ class TMDBClient:
                     f"{self.BASE_URL}/authentication", params={"api_key": self.api_key}, timeout=8.0
                 )
         except httpx.HTTPError as error:
-            return KeyStatus(state="unreachable", detail=f"TMDB could not be reached ({type(error).__name__})")
+            return KeyStatus(state="unreachable", detail=f"TMDB non raggiungibile ({type(error).__name__})")
 
         if response.status_code in (401, 403):
-            return KeyStatus(state="invalid", detail="TMDB rejected this key")
+            return KeyStatus(state="invalid", detail="TMDB ha rifiutato questa chiave")
         if not response.is_success:
-            return KeyStatus(state="unreachable", detail=f"TMDB answered {response.status_code}")
-        return KeyStatus(state="ok", detail="TMDB accepted this key")
+            return KeyStatus(state="unreachable", detail=f"TMDB ha risposto {response.status_code}")
+        return KeyStatus(state="ok", detail="TMDB ha accettato questa chiave")
 
     async def _search_movie_results(
         self, title: str, year: int | None, language_prefs: list[str], bypass_cache: bool
@@ -346,20 +346,20 @@ class TVDBClientV4:
             async with httpx.AsyncClient() as client:
                 response = await client.post(f"{self.BASE_URL}/login", json=payload, timeout=8.0)
         except httpx.HTTPError as error:
-            return KeyStatus(state="unreachable", detail=f"TVDB could not be reached ({type(error).__name__})")
+            return KeyStatus(state="unreachable", detail=f"TVDB non raggiungibile ({type(error).__name__})")
 
         if response.status_code in (401, 403):
-            return KeyStatus(state="invalid", detail="TVDB rejected this key or its PIN")
+            return KeyStatus(state="invalid", detail="TVDB ha rifiutato questa chiave o il suo PIN")
         if not response.is_success:
-            return KeyStatus(state="unreachable", detail=f"TVDB answered {response.status_code}")
+            return KeyStatus(state="unreachable", detail=f"TVDB ha risposto {response.status_code}")
 
         try:
             token = (response.json().get("data") or {}).get("token")
         except ValueError:
-            return KeyStatus(state="unreachable", detail="TVDB answered with something that is not JSON")
+            return KeyStatus(state="unreachable", detail="TVDB ha risposto con qualcosa che non è JSON")
         if not token:
-            return KeyStatus(state="invalid", detail="TVDB answered without a token")
-        return KeyStatus(state="ok", detail="TVDB accepted this key")
+            return KeyStatus(state="invalid", detail="TVDB ha risposto senza un token")
+        return KeyStatus(state="ok", detail="TVDB ha accettato questa chiave")
 
     @retry(
         stop=stop_after_attempt(5),
@@ -449,12 +449,14 @@ class TVDBClientV4:
         all_ranked = matching.rank_candidates(title, year, [_series_candidate(e) for e in entries])
         ranked = all_ranked
         if not ranked:
-            return matching.Decision(verdict="rejected", confidence=0.0, reason="No series matched that title")
+            return matching.Decision(
+                verdict="rejected", confidence=0.0, reason="Nessuna serie corrisponde a quel titolo"
+            )
 
         token = await self.get_token(bypass_cache)
         if not token:
             return matching.Decision(
-                verdict="rejected", confidence=0.0, reason="TVDB authentication failed", ranked=tuple(all_ranked)
+                verdict="rejected", confidence=0.0, reason="Autenticazione TVDB fallita", ranked=tuple(all_ranked)
             )
 
         # Extended payloads fetched while disambiguating, so the winner is not re-fetched.
@@ -469,7 +471,7 @@ class TVDBClientV4:
                 return matching.Decision(
                     verdict="rejected",
                     confidence=0.0,
-                    reason=f"TVDB returned no details for {chosen.candidate.label}",
+                    reason=f"TVDB non ha restituito dettagli per {chosen.candidate.label}",
                     ranked=tuple(all_ranked),
                 )
             return _forced_match(all_ranked, chosen, payload=series_data)
@@ -518,7 +520,7 @@ class TVDBClientV4:
             return matching.Decision(
                 verdict="rejected",
                 confidence=decision.confidence,
-                reason=f"TVDB returned no details for {ranked[0].candidate.label}",
+                reason=f"TVDB non ha restituito dettagli per {ranked[0].candidate.label}",
                 ranked=tuple(all_ranked),
             )
 

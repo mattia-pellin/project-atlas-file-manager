@@ -18,11 +18,11 @@ export const KeymapOverlay: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                 className="panel keymap"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Keyboard shortcuts"
+                aria-label="Scorciatoie da tastiera"
                 onMouseDown={(event) => event.stopPropagation()}
             >
                 <header className="panel-head">
-                    <h2>Keyboard</h2>
+                    <h2>Tastiera</h2>
                     <button type="button" className="button ghost" onClick={onClose}>
                         Esc
                     </button>
@@ -38,7 +38,7 @@ export const KeymapOverlay: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                                             <Kbd chord={shortcut.chord} />
                                             {shortcut.also && (
                                                 <>
-                                                    <span className="keymap-or">or</span>
+                                                    <span className="keymap-or">o</span>
                                                     <Kbd chord={shortcut.also} />
                                                 </>
                                             )}

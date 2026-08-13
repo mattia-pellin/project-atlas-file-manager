@@ -44,13 +44,32 @@ export const isYearValid = (year: unknown): boolean => {
     return Number.isInteger(num) && num >= 1900 && num <= 2100;
 };
 
-export const isRowValid = (row: MediaItem): boolean => {
-    if (row.original_name === row.proposed_name) return false;
-    if (row.media_type !== 'movie' && row.media_type !== 'episode') return false;
-    if (!isYearValid(row.year)) return false;
-    if (row.media_type === 'episode') {
-        if (!isSeasonValid(row.season)) return false;
-        if (!isEpisodeValid(row.episode)) return false;
+/**
+ * Why this row cannot be ticked, in the words the grid prints — or `null` if it can.
+ *
+ * One function rather than a boolean plus a message written somewhere else: the three
+ * refusals have genuinely different fixes, and "correggi le celle evidenziate" is a lie
+ * on a row where nothing is highlighted because the API simply found nothing.
+ */
+export const rowRefusal = (row: MediaItem): string | null => {
+    // Nothing to rename *to*. A row the API refused, or one whose proposed name was
+    // deleted by hand, is not a candidate for anything — and this has to be checked
+    // here rather than at the moment of renaming, because the tick is what the user
+    // reads as "this file is going to be written". Ctrl+A goes through the same gate.
+    if (!row.proposed_name || row.proposed_name.trim() === '') {
+        return 'Nessun nome proposto — abbina la riga o scrivi il nome prima di spuntarla';
     }
-    return true;
+    // Already named that way: renaming it is a no-op, and `resolve_rename_target`
+    // refuses it on the backend too. The row carries `success` for exactly this reason.
+    if (row.original_name === row.proposed_name) return 'Il file è già nominato così — niente da rinominare';
+    if (row.media_type !== 'movie' && row.media_type !== 'episode') {
+        return 'Tipo non deciso — scegli film o episodio, con Alt+C';
+    }
+    if (!isYearValid(row.year)) return 'Questa riga non è ancora rinominabile — correggi prima le celle evidenziate';
+    if (row.media_type === 'episode' && (!isSeasonValid(row.season) || !isEpisodeValid(row.episode))) {
+        return 'Questa riga non è ancora rinominabile — correggi prima le celle evidenziate';
+    }
+    return null;
 };
+
+export const isRowValid = (row: MediaItem): boolean => rowRefusal(row) === null;

@@ -1,6 +1,11 @@
 services:
   plex-file-manager:
-    build: .
+    build:
+      context: .
+      args:
+        # Only so the "Informazioni" panel can name the commit. Empty is fine and is
+        # what a local build normally gets: `GIT_SHA=$(git rev-parse HEAD)` fills it in.
+        GIT_SHA: ${GIT_SHA:-}
     container_name: plex-file-manager
     # Published on 8080; the app inside the container always listens on 8000.
     ports:

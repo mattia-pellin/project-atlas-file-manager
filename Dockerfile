@@ -3,7 +3,18 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+
+# Two stamps for the "Informazioni" panel, whose job is to answer "is the tab in front
+# of me this build?". `.git` is dockerignored, so the sha has to be handed in — CI
+# passes `github.sha`, a local build leaves it empty and the panel prints a dash. The
+# date is taken here rather than passed, so a local `docker compose up --build` is
+# still identifiable. It is stamped when this layer actually re-runs — `date` in a RUN
+# is not a cache key — which is whenever the frontend source changed, and the build
+# counter in `src/buildinfo.ts` is part of that source.
+ARG GIT_SHA=""
+RUN VITE_BUILD_SHA="$(echo "$GIT_SHA" | cut -c1-7)" \
+    VITE_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    npm run build
 
 FROM python:3.14-slim AS backend-builder
 

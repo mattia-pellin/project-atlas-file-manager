@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import matching
-from backend.analyzer import enrich_media_item
+from backend.analyzer import enrich_media_item, locate_absolute_episode
 from backend.api_clients import MAX_EXPOSED_CANDIDATES, TMDB_IMAGE_BASE, TMDBClient, TVDBClientV4
 from backend.main import app
 from backend.models import MediaItem
@@ -65,6 +65,23 @@ ANIME_EXTENDED = {
     "season_episode_counts": {1: 8, 2: 22},
     "episodes_raw": [
         {"id": 1, "seasonNumber": 1, "number": 10, "name": "I'm Luffy"},
+    ],
+    "year": "1999",
+}
+
+# The same anime record with TVDB's absolute numbering on it, which the real payload
+# carries. The season and episode below are this fixture's own, not TVDB's — live,
+# absolute 1015 resolves to S21E124 (verified 2026-08-13). What is being pinned is that
+# the lookup answers with whatever the *series* files the number under, and that the
+# special listed just before it, reusing the number, is not what answers.
+ANIME_ABSOLUTE_EXTENDED = {
+    "tvdb_id": "81797",
+    "name": "One Piece",
+    "season_episode_counts": {1: 8, 20: 92},
+    "episodes_raw": [
+        {"id": 1, "seasonNumber": 1, "number": 10, "name": "I'm Luffy", "absoluteNumber": 10},
+        {"id": 2, "seasonNumber": 0, "number": 4, "name": "A Recap Special", "absoluteNumber": 1015},
+        {"id": 3, "seasonNumber": 20, "number": 63, "name": "Foxy's Interference", "absoluteNumber": 1015},
     ],
     "year": "1999",
 }
@@ -236,7 +253,7 @@ async def test_forcing_a_movie_candidate_pins_its_exact_name(mocker) -> None:
     assert item.tmdb_id == 605
     assert item.status == "matched"
     assert item.confidence == 1.0
-    assert item.message == "Chosen by hand: The Matrix Revolutions (2003)"
+    assert item.message == "Scelto a mano: The Matrix Revolutions (2003)"
     assert [c.selected for c in item.candidates] == [False, True]
 
 
@@ -253,7 +270,7 @@ async def test_forcing_a_series_candidate_pins_its_exact_name(mocker) -> None:
     assert item.proposed_name == "One Piece - S01E10.mkv"
     assert item.tvdb_id == 424435
     assert item.status == "matched"
-    assert item.message == "Chosen by hand: One Piece (2023)"
+    assert item.message == "Scelto a mano: One Piece (2023)"
     # One fetch, for the chosen series. A forced pick skips disambiguation entirely,
     # which is what makes replaying it across a whole season free.
     assert calls == ["424435"]
@@ -283,7 +300,7 @@ async def test_a_stale_forced_key_is_refused_not_silently_rescored(mocker) -> No
 
     assert item.proposed_name is None
     assert item.status == "error"
-    assert "no longer among TMDB's results" in item.message
+    assert "non è più tra i risultati TMDB" in item.message
     # The list is still offered, so the user can pick again without re-scanning.
     assert [c.key for c in item.candidates] == ["604", "605"]
 
@@ -306,7 +323,7 @@ async def test_a_refused_reanalysis_does_not_return_the_previous_proposal(mocker
     assert again.proposed_name is None
     assert again.status == "error"
     assert again.confidence is None
-    assert "no longer among TMDB's results" in again.message
+    assert "non è più tra i risultati TMDB" in again.message
 
 
 @pytest.mark.asyncio
@@ -321,6 +338,61 @@ async def test_an_edited_title_that_matches_nothing_clears_the_old_name(mocker) 
 
     assert again.proposed_name is None
     assert again.status == "error"
+
+
+# --- Absolute episode numbering ----------------------------------------------
+
+
+def test_locate_absolute_episode_never_answers_with_a_special() -> None:
+    """Season 0 reuses the absolute sequence in some records, and a special is never
+    what a file numbered absolutely meant."""
+    assert locate_absolute_episode(ANIME_ABSOLUTE_EXTENDED["episodes_raw"], 1015) == (20, 63)
+    # Not in the series at all: no nearest neighbour, no guess.
+    assert locate_absolute_episode(ANIME_ABSOLUTE_EXTENDED["episodes_raw"], 9999) is None
+
+
+@pytest.mark.asyncio
+async def test_an_absolute_number_becomes_the_season_and_episode_tvdb_files_it_under(mocker) -> None:
+    """`One Piece - 1015.mkv` is the fixture this exists for.
+
+    guessit reads 1015 as S10E15, the API answers about S10E15, and confidence is high
+    because nothing downstream can know better. The series' own episode list is the
+    only thing that carries both numberings, so the correction has to arrive with the
+    hand-picked candidate — and once it does, the name is exact.
+    """
+    _mock_tvdb(mocker, ONE_PIECE_ENTRIES, {"81797": ANIME_ABSOLUTE_EXTENDED})
+    item = await enrich_media_item(
+        _episode_item(season=10, episode=15), ["en"], forced_key="81797", absolute_episode=1015
+    )
+
+    assert item.proposed_name == "One Piece - S20E63 - Foxy's Interference.mkv"
+    # Written back onto the row, so the grid stops showing the numbers it was misread as.
+    assert (item.season, item.episode) == (20, 63)
+    assert item.status == "matched"
+
+
+@pytest.mark.asyncio
+async def test_an_absolute_number_the_series_does_not_have_is_refused(mocker) -> None:
+    """Approximating it would rename the file to a neighbouring episode, which is the
+    one outcome worse than not renaming at all."""
+    _mock_tvdb(mocker, ONE_PIECE_ENTRIES, {"81797": ANIME_ABSOLUTE_EXTENDED})
+    item = await enrich_media_item(
+        _episode_item(season=10, episode=15), ["en"], forced_key="81797", absolute_episode=4242
+    )
+
+    assert item.proposed_name is None
+    assert item.status == "error"
+    assert item.message == "L'episodio assoluto 4242 non esiste in One Piece"
+    # The candidates survive the refusal: the pick may simply have been the wrong series.
+    assert [c.key for c in item.candidates] == ["424435", "81797"]
+
+
+def test_an_absolute_episode_below_one_is_refused() -> None:
+    item = _episode_item().model_dump()
+    response = TestClient(app).post("/api/analyze", json=item, params={"absolute_episode": 0})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "absolute_episode deve essere almeno 1"
 
 
 # --- Thresholds --------------------------------------------------------------
@@ -342,7 +414,7 @@ def test_thresholds_move_the_verdict_without_moving_the_score() -> None:
 
 
 def test_config_reports_the_roots_and_whether_the_keys_are_present(mocker) -> None:
-    """A missing key otherwise presents as "Could not find a match" — an API fault,
+    """A missing key otherwise presents as "Nessuna corrispondenza trovata" — an API fault,
     not the configuration fault it actually is."""
     mocker.patch.dict("os.environ", {"MEDIA_ROOT": "/media", "TMDB_API_KEY": "x"}, clear=False)
     mocker.patch.dict("os.environ", {"TVDB_API_KEY": ""}, clear=False)
@@ -364,9 +436,9 @@ def test_config_never_returns_a_key(mocker) -> None:
 @pytest.mark.parametrize(
     ("params", "detail"),
     [
-        ({"match_threshold": 1.5}, "match_threshold must be between 0 and 1"),
-        ({"review_threshold": -0.1}, "review_threshold must be between 0 and 1"),
-        ({"match_threshold": 0.3, "review_threshold": 0.8}, "review_threshold must not exceed match_threshold"),
+        ({"match_threshold": 1.5}, "match_threshold deve essere compreso tra 0 e 1"),
+        ({"review_threshold": -0.1}, "review_threshold deve essere compreso tra 0 e 1"),
+        ({"match_threshold": 0.3, "review_threshold": 0.8}, "review_threshold non può superare match_threshold"),
     ],
 )
 def test_an_impossible_threshold_is_refused_rather_than_clamped(params, detail) -> None:

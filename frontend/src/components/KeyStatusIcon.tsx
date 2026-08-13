@@ -19,7 +19,7 @@ const TONE: Record<KeyStatus['state'], string> = {
 
 export const KeyStatusIcon: React.FC<{ status: KeyStatus | null; checking: boolean }> = ({ status, checking }) => {
     if (checking || !status) {
-        const label = checking ? 'Checking…' : 'Not checked yet';
+        const label = checking ? 'Controllo…' : 'Non ancora controllata';
         return (
             <span className="key-icon is-unknown" role="img" aria-label={label} title={label}>
                 <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">

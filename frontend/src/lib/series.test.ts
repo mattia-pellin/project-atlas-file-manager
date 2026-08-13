@@ -55,15 +55,18 @@ describe('sameSeries', () => {
 });
 
 describe('needsTriage', () => {
-    it('queues the unsettled rows that actually have something to choose from', () => {
+    it('queues every unsettled row, including the ones with nothing to choose from', () => {
         const candidate = { key: '1', label: 'One Piece', source: 'tvdb' as const, score: 0.5, title_score: 1, year_factor: 1, selected: true };
         const rows = [
             item({ id: '1', status: 'review', candidates: [candidate] }),
             item({ id: '2', status: 'error', candidates: [candidate] }),
-            // Nothing to pick from, so triage has nothing to offer.
+            // No candidates at all. This is the row the app failed hardest on, so it is
+            // the one most in need of triage — which now opens a search on it rather than
+            // an empty list. Filtering it out left it with no way forward and made the
+            // Triage button's count disagree with its own queue.
             item({ id: '3', status: 'error', candidates: [] }),
             item({ id: '4', status: 'matched', candidates: [candidate] })
         ];
-        expect(needsTriage(rows).map((row) => row.id)).toEqual(['1', '2']);
+        expect(needsTriage(rows).map((row) => row.id)).toEqual(['1', '2', '3']);
     });
 });

@@ -10,12 +10,13 @@ import { MediaItem } from '../api';
  */
 
 const LABELS: Record<MediaItem['status'], string> = {
-    pending: 'Not analyzed yet',
-    matched: 'Confident match — ticked for rename',
-    review: 'Ambiguous — confirm the candidate before renaming',
-    renaming: 'Renaming…',
-    error: 'No usable match',
-    success: 'Renamed'
+    pending: 'Non ancora analizzato',
+    analyzing: 'Interrogo TMDB/TVDB…',
+    matched: 'Abbinamento sicuro — spuntato per la rinomina',
+    review: 'Ambiguo — conferma il candidato prima di rinominare',
+    renaming: 'Rinomina in corso…',
+    error: 'Nessun abbinamento utilizzabile',
+    success: 'Rinominato'
 };
 
 export const StatusDot: React.FC<{ item: MediaItem }> = ({ item }) => {
@@ -23,10 +24,25 @@ export const StatusDot: React.FC<{ item: MediaItem }> = ({ item }) => {
 
     return (
         <span className="status-dot" role="img" aria-label={title} title={title}>
-            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+            {/* Drawn on a 12-unit grid and painted at 14: the geometry below stays
+                comparable with the strokes everywhere else, and the target the mouse has
+                to hit — the thing that opens triage on the row — grows with it. */}
+            <svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true">
                 {item.status === 'matched' && <circle cx="6" cy="6" r="4" fill="var(--verify-teal)" />}
                 {item.status === 'review' && <circle cx="6" cy="6" r="3.6" fill="none" stroke="var(--caution-ochre)" strokeWidth="1.6" />}
                 {item.status === 'pending' && <circle cx="6" cy="6" r="3.6" fill="none" stroke="var(--dim-steel)" strokeWidth="1.2" strokeDasharray="2 2" />}
+                {/* The pending ring, set turning, plus a centre it does not have — so the
+                    two are still told apart in a screenshot, where nothing moves. Steel
+                    rather than amber: this one is only asking a question, whereas
+                    `renaming` is writing to the library. */}
+                {item.status === 'analyzing' && (
+                    <>
+                        <g className="status-dot-spin">
+                            <circle cx="6" cy="6" r="4.4" fill="none" stroke="var(--muted-steel)" strokeWidth="1.2" strokeDasharray="2.3 2.3" />
+                        </g>
+                        <circle cx="6" cy="6" r="1.5" fill="var(--muted-steel)" />
+                    </>
+                )}
                 {item.status === 'error' && (
                     <>
                         <circle cx="6" cy="6" r="4.2" fill="var(--fault-rust)" />

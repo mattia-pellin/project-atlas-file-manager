@@ -2,7 +2,7 @@
 
 The distinction is the whole point of the endpoint. A key that is present but revoked,
 and a provider that cannot be reached, both used to arrive in the UI as rows reading
-"Could not find a match" — the same words a genuine no-match produces — so the user went
+"Nessuna corrispondenza trovata" — the same words a genuine no-match produces — so the user went
 looking at the naming pipeline for a problem that was in the environment.
 
 Nothing here touches the network: `httpx.AsyncClient` is replaced, so a run offline (or

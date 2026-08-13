@@ -144,7 +144,7 @@ def test_two_identically_named_series_are_never_matched_outright() -> None:
     assert REVIEW_THRESHOLD <= decision.confidence < MATCH_THRESHOLD
     # The name is still offered — the user needs to see the candidate to judge it.
     assert decision.accepted
-    assert "Ambiguous" in decision.reason
+    assert "Ambiguo" in decision.reason
 
 
 def test_a_lone_candidate_is_worth_its_own_score() -> None:

@@ -173,7 +173,7 @@ async def test_an_unparseable_episode_is_an_error_not_episode_one(mocker) -> Non
     item = await enrich_media_item(_episode_item("Some Show S01Exx.mkv", 1, "not-a-number"), ["it", "en"])
     assert item.proposed_name is None
     assert item.status == "error"
-    assert item.message == "Could not determine the episode number"
+    assert item.message == "Numero di episodio non riconosciuto"
 
 
 @pytest.mark.asyncio
@@ -202,7 +202,7 @@ async def test_a_low_confidence_match_still_proposes_a_name_but_is_not_matched(m
         return Decision(
             verdict="review",
             confidence=0.5,
-            reason="Ambiguous (0.50): Doctor Who (1963) and Doctor Who (2005) score alike",
+            reason="Ambiguo (50%): Doctor Who (1963) e Doctor Who (2005) hanno punteggi equivalenti",
             payload=_tvdb_series("Doctor Who", {5: 40}, [{"seasonNumber": 5, "number": 1, "name": "The Tomb"}]),
         )
 
@@ -219,7 +219,7 @@ async def test_a_low_confidence_match_still_proposes_a_name_but_is_not_matched(m
     assert item.proposed_name == "Doctor Who - S05E01 - The Tomb.mkv"
     assert item.status == "review"
     assert item.confidence == 0.5
-    assert "Ambiguous" in item.message
+    assert "Ambiguo" in item.message
 
 
 @pytest.mark.asyncio
@@ -241,3 +241,45 @@ async def test_a_rejected_match_reports_why_instead_of_could_not_find_a_match(mo
     assert item.proposed_name is None
     assert item.status == "error"
     assert item.message == "No confident match — closest was Bob (1999) at 0.20"
+
+
+@pytest.mark.asyncio
+async def test_a_file_already_named_correctly_reads_as_renamed_not_as_pending(mocker) -> None:
+    """The proposal equals what is on disk, so the rename has effectively happened.
+
+    Left as `matched` the row sat among the ones still waiting to be written, while being
+    untickable — `resolve_rename_target` refuses a no-op and so does `isRowValid`. The
+    confidence survives: how sure the match was is still worth reading on the row.
+    """
+    _mock_tvdb(
+        mocker,
+        _tvdb_series(
+            "Breaking Bad",
+            {1: 7},
+            [{"seasonNumber": 1, "number": 2, "name": "Cat's in the Bag..."}],
+        ),
+    )
+    name = "Breaking Bad - S01E02 - Cat's in the Bag....mkv"
+    item = await enrich_media_item(_episode_item(name, 1, 2), ["it", "en"])
+
+    assert item.proposed_name == name
+    assert item.status == "success"
+    assert item.message == "Già nominato così — niente da rinominare"
+    assert item.confidence == 1.0
+
+
+@pytest.mark.asyncio
+async def test_a_file_one_character_away_is_still_a_rename(mocker) -> None:
+    """The comparison is the whole string: nothing here may normalise it into a match."""
+    _mock_tvdb(
+        mocker,
+        _tvdb_series(
+            "Breaking Bad",
+            {1: 7},
+            [{"seasonNumber": 1, "number": 2, "name": "Cat's in the Bag..."}],
+        ),
+    )
+    item = await enrich_media_item(_episode_item("breaking bad - S01E02 - Cat's in the Bag....mkv", 1, 2), ["it", "en"])
+
+    assert item.proposed_name == "Breaking Bad - S01E02 - Cat's in the Bag....mkv"
+    assert item.status == "matched"

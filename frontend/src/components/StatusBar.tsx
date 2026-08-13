@@ -15,7 +15,7 @@ import { Kbd } from './Kbd';
  * a key that does nothing.
  */
 
-export type Mode = 'grid' | 'triage' | 'settings' | 'keymap' | 'palette' | 'confirm';
+export type Mode = 'grid' | 'triage' | 'settings' | 'keymap' | 'palette' | 'confirm' | 'confidence' | 'about';
 
 interface Hint {
     chord: Chord;
@@ -24,30 +24,32 @@ interface Hint {
 
 const HINTS: Record<Mode, Hint[]> = {
     grid: [
-        { chord: 'enter', what: 'edit' },
-        { chord: 'space', what: 'tick' },
-        { chord: 'mod+d', what: 'fill down' },
-        { chord: TRIAGE_ROW_CHORD, what: 'triage row' },
-        { chord: TRIAGE_CHORD, what: 'triage all' },
-        { chord: 'mod+enter', what: 'rename' },
-        { chord: 'mod+k', what: 'commands' }
+        { chord: 'enter', what: 'modifica' },
+        { chord: 'space', what: 'spunta' },
+        { chord: 'mod+d', what: 'ricopia' },
+        { chord: TRIAGE_ROW_CHORD, what: 'triage riga' },
+        { chord: TRIAGE_CHORD, what: 'triage completo' },
+        { chord: 'mod+enter', what: 'rinomina' },
+        { chord: 'mod+k', what: 'comandi' }
     ],
     triage: [
-        { chord: '1', what: 'choose (1–9)' },
-        { chord: 'a', what: 'whole series' },
-        { chord: 's', what: 'skip' },
-        { chord: 'escape', what: 'grid' }
+        { chord: '1', what: 'scegli (1–9)' },
+        { chord: 'a', what: 'tutta la serie' },
+        { chord: 's', what: 'salta' },
+        { chord: 'escape', what: 'griglia' }
     ],
-    settings: [{ chord: 'escape', what: 'back to the grid' }],
-    keymap: [{ chord: 'escape', what: 'back to the grid' }],
+    settings: [{ chord: 'escape', what: 'torna alla griglia' }],
+    keymap: [{ chord: 'escape', what: 'torna alla griglia' }],
+    confidence: [{ chord: 'escape', what: 'torna alla griglia' }],
+    about: [{ chord: 'escape', what: 'torna alla griglia' }],
     palette: [
-        { chord: 'arrowdown', what: 'move' },
-        { chord: 'enter', what: 'run' },
-        { chord: 'escape', what: 'close' }
+        { chord: 'arrowdown', what: 'sposta' },
+        { chord: 'enter', what: 'esegui' },
+        { chord: 'escape', what: 'chiudi' }
     ],
     confirm: [
-        { chord: 'enter', what: 'rename' },
-        { chord: 'escape', what: 'cancel' }
+        { chord: 'enter', what: 'rinomina' },
+        { chord: 'escape', what: 'annulla' }
     ]
 };
 
@@ -63,15 +65,15 @@ export const StatusBar: React.FC<StatusBarProps> = ({ counts, directory, mode })
             nodes it renders as "3<!-- -->files" in any server-rendered snapshot, which
             is a nuisance to assert on and a nuisance for a screen reader to read. */}
         <span className="status-counts mono">
-            <span>{`${counts.total} files`}</span>
+            <span>{`${counts.total} file`}</span>
             <Separator />
-            <span className={counts.selected > 0 ? 'is-selected' : ''}>{`${counts.selected} selected`}</span>
+            <span className={counts.selected > 0 ? 'is-selected' : ''}>{`${counts.selected} selezionati`}</span>
             <Separator />
-            <span className="is-matched">{`${counts.matched} matched`}</span>
+            <span className="is-matched">{`${counts.matched} abbinati`}</span>
             <Separator />
-            <span className={counts.review > 0 ? 'is-review' : ''}>{`${counts.review} review`}</span>
+            <span className={counts.review > 0 ? 'is-review' : ''}>{`${counts.review} da rivedere`}</span>
             <Separator />
-            <span className={counts.error > 0 ? 'is-error' : ''}>{`${counts.error} unmatched`}</span>
+            <span className={counts.error > 0 ? 'is-error' : ''}>{`${counts.error} non abbinati`}</span>
         </span>
 
         <span className="status-rule" aria-hidden="true" />

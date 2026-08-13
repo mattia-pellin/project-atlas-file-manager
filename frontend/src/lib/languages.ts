@@ -83,7 +83,7 @@ export const removeLanguage = (codes: string[], code: string): string[] => codes
  */
 export const languagesError = (codes: string[]): string | null => {
     const bad = codes.filter((code) => !isLanguageCode(code));
-    if (bad.length > 0) return `${bad.join(', ')} ${bad.length === 1 ? 'is not a language code' : 'are not language codes'}`;
-    if (codes.length === 0) return 'At least one language is needed';
+    if (bad.length > 0) return `${bad.join(', ')} non ${bad.length === 1 ? 'è un codice lingua' : 'sono codici lingua'}`;
+    if (codes.length === 0) return 'Serve almeno una lingua';
     return null;
 };

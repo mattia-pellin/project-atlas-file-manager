@@ -55,13 +55,17 @@ export const LanguageEditor: React.FC<LanguageEditorProps> = ({ codes, onChange 
             {codes.map((code, index) => {
                 const valid = isLanguageCode(code);
                 const name = valid ? languageName(code) : null;
-                const position = index === 0 ? 'preferred' : `fallback ${index}`;
+                const position = index === 0 ? 'preferita' : `ripiego ${index}`;
                 return (
                     <span key={code} className={`lang-chip${valid ? '' : ' is-bad'}${index === 0 ? ' is-first' : ''}`}>
                         <button
                             type="button"
                             className="lang-chip-body"
-                            title={valid ? `${name ?? code} — ${position}. Click to prefer it.` : `${code} is not a language code`}
+                            title={
+                                valid
+                                    ? `${name ?? code} — ${position}. Clicca per preferirla.`
+                                    : `${code} non è un codice lingua`
+                            }
                             onClick={() => onChange(promoteLanguage(codes, code))}
                         >
                             {!valid && <WarnGlyph />}
@@ -70,8 +74,8 @@ export const LanguageEditor: React.FC<LanguageEditorProps> = ({ codes, onChange 
                         <button
                             type="button"
                             className="lang-chip-x"
-                            aria-label={`Remove ${code}`}
-                            title={`Remove ${code}`}
+                            aria-label={`Togli ${code}`}
+                            title={`Togli ${code}`}
                             onClick={() => onChange(removeLanguage(codes, code))}
                         >
                             ×
@@ -83,7 +87,7 @@ export const LanguageEditor: React.FC<LanguageEditorProps> = ({ codes, onChange 
                 className="lang-input mono"
                 value={draft}
                 spellCheck={false}
-                aria-label="Add a language code"
+                aria-label="Aggiungi un codice lingua"
                 placeholder={codes.length === 0 ? 'it' : ''}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={onKeyDown}

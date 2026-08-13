@@ -38,6 +38,13 @@ export const sameSeries = (rows: MediaItem[], target: MediaItem): MediaItem[] =>
     return rows.filter((row) => seriesKey(row) === key);
 };
 
-/** Rows the scoring could not settle on its own, in grid order. */
+/**
+ * Rows the scoring could not settle on its own, in grid order.
+ *
+ * A row with *no* candidates belongs here as much as an ambiguous one — more, even: it
+ * is the file the app failed hardest on. It used to be filtered out, on the grounds that
+ * triage had nothing to offer it, and the result was a Triage button whose count did not
+ * match its queue and a row with no way forward at all. Triage now opens a search on it.
+ */
 export const needsTriage = (rows: MediaItem[]): MediaItem[] =>
-    rows.filter((row) => (row.status === 'review' || row.status === 'error') && (row.candidates?.length ?? 0) > 0);
+    rows.filter((row) => row.status === 'review' || row.status === 'error');

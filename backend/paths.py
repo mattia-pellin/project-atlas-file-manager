@@ -67,7 +67,7 @@ def resolve_within_roots(candidate: str | Path) -> Path:
             return resolved
 
     allowed = ", ".join(str(root) for root in roots) or "(none configured)"
-    raise PathNotAllowed(f"'{candidate}' is outside the allowed directories: {allowed}")
+    raise PathNotAllowed(f"'{candidate}' è fuori dalle cartelle consentite: {allowed}")
 
 
 def resolve_rename_target(original_path: str | Path, proposed_name: str) -> tuple[Path, Path]:
@@ -88,13 +88,13 @@ def resolve_rename_target(original_path: str | Path, proposed_name: str) -> tupl
 
     name = proposed_name.strip()
     if not name:
-        raise PathNotAllowed("The proposed name is empty")
+        raise PathNotAllowed("Il nome proposto è vuoto")
     if name in {".", ".."} or "/" in name or "\\" in name or "\x00" in name:
-        raise PathNotAllowed(f"The proposed name '{proposed_name}' is not a bare filename")
+        raise PathNotAllowed(f"Il nome proposto '{proposed_name}' non è un nome di file semplice")
 
     target = source.parent / name
     # Belt and braces: a rename never leaves the file's own directory, and that
     # directory is already known to be inside a root.
     if target.parent != source.parent:
-        raise PathNotAllowed(f"The proposed name '{proposed_name}' would move the file out of its directory")
+        raise PathNotAllowed(f"Il nome proposto '{proposed_name}' sposterebbe il file fuori dalla sua cartella")
     return source, target

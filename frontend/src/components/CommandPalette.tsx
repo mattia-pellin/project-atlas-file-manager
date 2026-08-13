@@ -64,13 +64,13 @@ export const CommandPalette: React.FC<PaletteProps> = ({ commands, onClose }) =>
                 className="panel palette"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Commands"
+                aria-label="Comandi"
                 onMouseDown={(event) => event.stopPropagation()}
             >
                 <input
                     ref={inputRef}
                     className="palette-input"
-                    placeholder="Run a command…"
+                    placeholder="Esegui un comando…"
                     value={query}
                     spellCheck={false}
                     onChange={(event) => {
@@ -99,7 +99,7 @@ export const CommandPalette: React.FC<PaletteProps> = ({ commands, onClose }) =>
                             </button>
                         </li>
                     ))}
-                    {matches.length === 0 && <li className="palette-empty">Nothing matches.</li>}
+                    {matches.length === 0 && <li className="palette-empty">Nessuna corrispondenza.</li>}
                 </ul>
             </div>
         </div>

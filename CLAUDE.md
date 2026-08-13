@@ -313,18 +313,21 @@ GET  /api/keys     → TMDBClient.verify_key() ‖ TVDBClientV4.verify_key()
 DEL  /api/cache    → drops every cached API payload (raw responses only)
 ```
 
-`/api/analyze` takes three overrides as query parameters: `forced_key`,
-`match_threshold` and `review_threshold`. The thresholds are per-request rather
-than server state, so two concurrent analyses cannot disagree about which bands
-were in force; an impossible pair is a `400` rather than being clamped, because a
-silently corrected threshold makes the UI report a band that is not the one
-applied.
+`/api/analyze` takes four overrides as query parameters: `forced_key`,
+`absolute_episode`, `match_threshold` and `review_threshold`. The thresholds are
+per-request rather than server state, so two concurrent analyses cannot disagree
+about which bands were in force; an impossible pair is a `400` rather than being
+clamped, because a silently corrected threshold makes the UI report a band that is
+not the one applied. `absolute_episode` below 1 is a `400` for the same reason.
 
-The frontend calls `/api/analyze` **once per file**, through a pool of six
-(`ANALYZE_CONCURRENCY` in `App.tsx`, `lib/pool.ts`). The backend has no cap of
-its own and `api_clients.py` opens a fresh `httpx.AsyncClient` per request, so
-the six is the only thing bounding the fan-out. Keep that in mind before adding
-more per-item network calls.
+The frontend calls `/api/analyze` **once per file**, through a pool whose size
+is a setting (`Settings.analyzeConcurrency`, default **10**, `lib/pool.ts`). The
+backend has no cap of its own and `api_clients.py` opens a fresh
+`httpx.AsyncClient` per request, so that one number is the only thing bounding
+the fan-out — which is why it is validated rather than clamped
+(`isPoolSize`, `POOL_LIMITS` = 1–100, in `lib/settings.ts`) and why the panel
+refuses a value instead of correcting it. Keep it in mind before adding more
+per-item network calls: each one multiplies by the pool size.
 
 **A re-analysis clears the row first.** The client sends the whole `MediaItem`
 back, previous answer included, so `enrich_media_item` resets `proposed_name`,
@@ -350,7 +353,7 @@ so the eliminated candidate can be the right answer and may not be hidden.
 
 Sending a candidate's `key` back as `forced_key` settles the match by hand:
 scoring and episode evidence both stand down, confidence is 1.0 and the message
-says `Chosen by hand: …`, so a row settled by a human stays distinguishable from
+says `Scelto a mano: …`, so a row settled by a human stays distinguishable from
 one the scoring was sure of. A key that is no longer in the results is a
 **rejection**, never a silent re-score — falling back to whatever the scoring now
 prefers would rename the file to a title nobody chose.
@@ -358,6 +361,29 @@ prefers would rename the file to a title nobody chose.
 Replaying one choice across a whole series is therefore free: the search is
 cached on the title and `get_series_extended` on the id, so the second and
 subsequent episodes make no request at all.
+
+### Absolute episode numbers
+
+`absolute_episode` is the other correction that can only be made once the series is
+known. `One Piece - 1015.mkv` is S21E124 — but only in *that* One Piece, so the number
+cannot be resolved in the parser, in the grid or anywhere before a candidate has been
+chosen. It therefore travels with the pick, and `locate_absolute_episode()`
+(`analyzer.py`) looks it up in the chosen series' own `episodes_raw`.
+
+Three properties, each with a test in `test_candidates.py`:
+
+- It is resolved **after** the match and **before** the padding, because the padding
+  is sized from the season the number turns out to fall in.
+- A number the series does not carry is an `error`, never the nearest episode.
+  Renaming to a neighbouring episode is the one outcome worse than not renaming.
+- **Specials are skipped.** Season 0 shares the absolute sequence in some TVDB
+  records, so an absolute number can land on a recap special; that is never what the
+  filename meant.
+
+The resolved season and episode are written back onto the item, so the grid's `S` and
+`E` columns show the numbers the name was built from rather than the ones guessit
+misread. And because an absolute number names exactly one episode, it stands the
+apply-to-series replay down — the checkbox goes dead while the field holds a number.
 
 ### Files that matter
 
@@ -378,7 +404,10 @@ subsequent episodes make no request at all.
   `file → expect` list and its loader. See **Naming cases** below.
 - `frontend/src/lib/validation.ts` — row validation. A row that fails
   `isRowValid` cannot be selected, so it cannot be renamed. This is the last
-  gate before the filesystem; keep these functions pure and tested.
+  gate before the filesystem; keep these functions pure and tested. It is one
+  function, `rowRefusal`, returning the sentence the grid prints — `isRowValid`
+  is `rowRefusal(row) === null`. A boolean plus a message written elsewhere
+  drifts, and the refusals do not share a fix.
 - `frontend/src/lib/gridReducer.ts` — **the whole keyboard model**, as one pure
   reducer: focus, type-to-edit, selection, fill-down, undo. Every key the grid
   receives becomes an action here, so behaviour is tested without a DOM. Editing
@@ -453,29 +482,223 @@ One screen, full-bleed, no sidebar: a 44px command bar over the grid. Everything
 else — triage, settings, keymap, command palette, the rename confirmation — is an
 overlay that `Esc` returns from.
 
+**The bar has one gap, `--space-2`, and everything in it is that far apart** — brand,
+path box, each of the three verbs, each of the two icons. The slack goes to the path
+box (`.bar-path { flex: 1 1 auto }`), which is the only thing in the bar that can use
+it: a directory is long, a verb is as wide as its word.
+
+Two other distributions were tried and are wrong. `margin-left: auto` on the verbs is
+the first: an auto margin swallows the whole free space *before* flex-grow is
+considered, so the path box never grows and the slack piles up as one gap in front of
+Scansiona. `justify-content: space-evenly` on a grown `.bar-actions` is the second —
+it does make every opening equal, but spreading three buttons across half the bar
+reads as three unrelated controls that happen to share a row rather than as a group.
+
+Scansiona is *outside* the path form and reaches it with `form="scan-form"`:
+associating by id rather than moving the input keeps `Enter` in the path box scanning,
+which is how the directory is normally submitted. The two icon buttons are `.bar-tools`,
+pinned right and out of the verbs' rhythm — they open a panel, they are not verbs.
+
+**Progress is shown inside the verb that started it, and nowhere else.** While the pool
+is running, Scansiona reads `Analisi 07/16`, turns amber (`.button.is-busy:disabled`) and
+is disabled; Riabbina and Rinomina do the same for their own work (`Busy.verb` in
+`CommandBar.tsx` says which button owns the label, `App.tsx` sets and clears it). The
+button is therefore both the indicator and the interlock: a second scan cannot be started
+over the first, and there is no separate progress element.
+
+That element existed and was wrong. A `.bar-busy` div between the path box and the verbs
+appeared when work started and disappeared when it ended, so the three buttons slid
+sideways twice per scan — and `.bar-busy:empty { display: none }` was needed on top,
+because an empty flex item still costs the bar's gap on both of its sides.
+
+Nothing moves now, and the mechanism is **not** a hand-measured `min-width` — that was
+the first attempt and it was already too narrow for `Analisi 100/236`, so the button
+grew mid-scan and pushed the two beside it sideways, which is the reflow the whole
+change was meant to end. Each verb instead renders **every state it can be in**
+underneath the real one, hidden, in the same grid cell (`Verb` in `CommandBar.tsx`,
+`.verb` / `.verb-ghost`): the box is the widest of them by construction and cannot fall
+out of date when a label is reworded. Every count in that list is `888` — three digits,
+so a library up to 999 files never resizes the bar — and the running count is padded to
+the total's width (`padStart`, `white-space: pre`), so `9/16 → 10/16` does not widen it
+either. Amber rather than the disabled grey, because grey says "there is nothing here to
+press" and this says "it is working".
+
+**The idle labels move too**, which the first version of that list missed: it held only
+the busy labels, so Triage still grew as its pip appeared and went one digit to two while
+the scan filled the grid behind it, and Rinomina grew as the confident rows were ticked.
+The face and the ghost are built by one function per verb (`scanFace`, `triageFace`,
+`renameFace`) called with the real count and with `888`, so the two cannot drift, and
+`CommandBar.test.tsx` counts the reserved slots.
+
+**The third icon is Informazioni** (`AboutOverlay.tsx`), and it exists for one check: a
+container was just rebuilt, so is the tab in front of me the new bundle? The version
+alone cannot answer that — the image is rebuilt far more often than it is tagged — so the
+panel leads with the **build number**, which moves on every change, and prints the commit
+and the build time beside it. Deliberately no chord: it is consulted after a deploy, not
+during the work, and the free `Ctrl`+letter chords are spent.
+
+**The UI is in Italian**, because its one user is. Only what the user reads is
+translated: code, comments, commit messages and test names stay English. The
+backend's `message` and `detail` strings *are* read by the user — they are printed on
+the row and in triage — so they are Italian too, and the pytest assertions that pin
+them were translated in the same commit. That is the rule: a message is part of the
+naming pipeline's contract, so it changes **in the backend with its test**, never by
+being rewritten in the frontend. Every score inside one goes through
+`matching.percent()`, which mirrors `frontend/src/lib/format.ts` half-up rounding
+included, so a message and the `C.S.` column cannot print one confidence two ways.
+
 **The keyboard model is spreadsheet, not modal.** Bare printable keys always type
 into the focused cell, so every command is a modifier chord (`Ctrl+K` palette,
-`Ctrl+Enter` rename, `Ctrl+R` scan, `Ctrl+D` fill-down, `Ctrl+G` triage,
-`Ctrl+Shift+G` triage this row, `Ctrl+,` settings, `Ctrl+/` keymap). The one place
+`Ctrl+Enter` rename, `Ctrl+R` scan, `Ctrl+D` fill-down, `Alt+G` triage,
+`Ctrl+G` triage this row, `Alt+C` flip movie/episode, `Ctrl+,` settings,
+`Ctrl+/` keymap, `F2` edit the focused cell). The one place
 bare letters and digits are free is **triage**, where nothing is being typed:
-`1`–`9` pick a candidate, `A` toggles apply-to-series, `S` skips. Chords are matched
-and rendered from the same string (`lib/keymap.ts`, `lib/shortcuts.ts`), so the help
-cannot drift from the behaviour.
+`1`–`9` pick a candidate, `↑`/`↓` walk the list and `Enter` takes the one under the
+cursor, `←`/`→` walk the queue, `A` toggles apply-to-series, `S` skips. Chords are
+matched and rendered from the same string (`lib/keymap.ts`, `lib/shortcuts.ts`), so
+the help cannot drift from the behaviour.
 
-**A chord the browser keeps is not a chord.** Triage was on `Ctrl+T`, which Chrome
-and Firefox answer with a new tab *without delivering the event*, so
-`preventDefault()` never runs and there is nothing the page can do about it. It is on
-`Ctrl+G` now — nominally "find again", preventable, and meaningless with no find bar
-open. `lib/shortcuts.test.ts` fails if any of the reserved chords comes back. The
-opposite failure is just as real and has no feature test either: scan was also bound
-to `Ctrl+Shift+S`, which never arrives at all on this user's keyboard layout, so the
-"safe" alternative was the one that did not work. Scan is `Ctrl+R` alone.
+**Vertical is the candidates, horizontal is the files**, and they used to be one
+gesture. That was wrong in the case triage is reached from most: `Ctrl+G` builds a
+one-row queue, so the arrows had nowhere to walk and the overlay felt inert. The same
+`event.target instanceof HTMLInputElement` guard the grid uses for cells applies —
+with the cursor in the search box an arrow is a caret and the overlay stands down.
+
+**An overlay opened by chord has to take the DOM focus with it.** Triage used to
+appear while the focus stayed on the grid, which then kept answering the arrows
+underneath it. The panel is `tabIndex={-1}` and takes focus on open — into the search
+box instead when there is nothing to choose from, since that is the only thing to do
+on such a row — and `App.tsx` blurs the grid whenever `mode` leaves `'grid'`.
+
+**A chord something above the page keeps is not a chord**, and two layers do it.
+The browser: triage was on `Ctrl+T`, which Chrome and Firefox answer with a new tab
+*without delivering the event*, so `preventDefault()` never runs and there is nothing
+the page can do about it. And, on this machine, the **AMD driver overlay**, which eats
+`Ctrl+Shift+G` the same way — it never reaches the browser at all, so no amount of
+web-platform knowledge predicts it. Neither is feature-detectable, because in both
+cases nothing arrives; the only defence is the reserved list in
+`lib/shortcuts.test.ts`, which fails if any of them comes back. The opposite failure
+is just as real: scan was also bound to `Ctrl+Shift+S`, which never arrives at all on
+this user's keyboard layout, so the "safe" alternative was the one that did not work.
+Scan is `Ctrl+R` alone.
+
+That is why the two triage entries are `Alt+G` (queue) and `Ctrl+G` (this row): the
+plain modifier goes to the row-local one because it is the entry reached most often,
+and `Ctrl+G` is nominally "find again" — preventable, and meaningless with no find bar
+open.
+
+The type flip is `Alt+C` for the same reason from the other side: every useful
+unshifted `Ctrl+letter` is gone — `Ctrl+T` the browser keeps, `Ctrl+E` is the omnibox,
+`Ctrl+M` mutes the tab in Firefox and `Ctrl+Shift+M` is its responsive-design mode,
+which devtools take before the page sees them — and a bare letter is not available
+because bare printable keys type into the cell. It flips the focused row from *any*
+column (`cycleChoice` takes an explicit `column`), because the cursor is essentially
+never parked on Type when the type turns out to be wrong, and the wrong type means the
+wrong API was asked entirely.
 
 **Status is a dot, never a word** (`StatusDot.tsx`), and the dots differ by *fill*
 as well as hue — solid, hollow, dashed, crossed, ticked — so the state survives a
 colour-blind reader and a bad monitor. The word is still there as the accessible
 name. Selection is a 3px amber left edge, which keeps the dot the only circle on
 the row and removes the need for a checkbox column.
+
+The dot is drawn on a 12-unit grid and painted at 14px, so the geometry stays
+comparable with the strokes everywhere else while the glyph grows; `.status-dot` is
+`width: 100%; height: 100%`, so what the pointer has to hit is the whole status cell
+rather than the circle inside it.
+
+Two of the seven states are **client-side only** and the backend must never be told
+about them: `analyzing`, set only on the rows actually in flight through the pool, and
+`renaming`. Both spin. `analyzing` is the pending ring set turning, plus a centre dot
+pending does not have — motion alone would make the two indistinguishable in a
+screenshot, which is the same failure the fill rule exists to prevent. It is steel
+rather than amber because it is only asking a question; `renaming` is writing to the
+library. `analyzeAll` posts the *untouched* item, so the invented status never leaves
+the browser.
+
+**A row with no name to rename to cannot be ticked** — not by hand, not by `Ctrl+A`,
+not by `Shift+Arrow`, because all three go through `isRowValid`. Two cases join the
+malformed cells there: a `proposed_name` that is empty (the API found nothing, or the
+cell was blanked by hand), and one *equal to the name on disk*. The tick is what the
+user reads as "this file is going to be written", so a tick that would write nothing is
+a lie about the size of the batch — and it also kept the confirmation's tally from being
+checkable, which is now the only thing that panel shows. `Ctrl+A` says how many rows it
+left out rather than silently ticking fewer.
+
+The refusal names the cause, since only one of the three has a red cell to look at:
+`Nessun nome proposto …`, `Il file è già nominato così …`, or `… correggi prima le celle
+evidenziate`. `cellIsInvalid` in `Grid.tsx` deliberately does *not* paint a cell for the
+first two — nothing in the row is wrong.
+
+**A file already named the way this app would name it comes back `success`, from the
+backend** (`enrich_media_item`, `"Già nominato così — niente da rinominare"`). It is a
+rename that has already happened, not one that is waiting: `matched` left it sitting in
+the same state as the forty rows that do need writing, and it got auto-ticked with them
+even though `resolve_rename_target` would refuse it. The confidence is kept — how sure
+the match was is still worth reading. The status is part of the analysis answer, so it
+is decided in the backend with its test (`backend/test_renaming.py`), never patched into
+the frontend.
+
+**The order is one comparator, and it is applied on demand** (`lib/sort.ts`,
+`gridReducer` `setRows`/`sort`): movies before episodes, then title, year, season,
+episode. The comparator is total — it falls through to the on-disk name and then the id
+— so rows cannot swap places on an unrelated re-render. Sorting is *not* done in
+`mergeRows`: analysis rewrites the very fields the order is built from (a title becomes
+its Italian one, a year is corrected by the API), so re-sorting on each concurrent
+answer shuffles the grid under someone typing in it.
+
+It is not done at the end of a batch either, which was the first attempt. Correcting a
+title re-matches that one row, and the re-sort that followed jumped it somewhere else
+in the grid — the cursor was left on whatever row had slid into that position, so the
+next keystroke edited the wrong file. **The only automatic sort is after a scan**, when
+every row is new and nothing has been typed yet. Otherwise the reorder is a button in
+the **status column header** (`.head-sort`, also in the palette), pressed when the
+order is what you want rather than because a row changed.
+
+**Confidence has its own column, `C.S.`, with the explanation attached to it.** It was
+a badge floated inside `proposed_name`, competing for the same pixels and vanishing as
+soon as the name was long. The info button opens `ConfidenceOverlay`, which is given the
+thresholds *in force* rather than the defaults, and which spends most of its length on
+the two counter-intuitive parts: a perfect title can score 50% because the runner-up
+matched as well, and 100% can still be wrong (`One Piece - 1015.mkv`). Its heading is
+right-aligned over the percentages, like `S` and `E`; the specimens inside it
+(`.help-example`) are marked as code but stay **inline**, like a backtick in a chat,
+because `ワンピース` and a filename are the argument the sentence is making. Lifting
+them into boxes of their own — the first attempt — broke the sentences around them.
+
+**Alignment is a property of the quantity, and the heading follows the values** unless
+it reads worse there (`ColumnSpec.align` / `headerAlign`, `lib/columns.ts`). The year is
+centred on both halves: four digits always, so there are no ragged edges to line up and
+nothing is gained by pinning it right, while a heading sitting over a column that does
+not share its alignment reads as a mistake. `S`, `E` and `C.S.` stay right-aligned
+because their values *are* ragged.
+
+**Editing happens on the text that is already there.** The editor used to be a bordered
+input on its own background, inset in the cell, so a second rectangle appeared and its
+padding shifted every character one notch right the moment you pressed a key — the value
+you were correcting moved as you started correcting it. It is now transparent, borderless
+and flush; the focused cell's amber ring and the caret are the whole affordance.
+
+**Shift+Arrow draws a vertical cell range, and one paste fills all of it**
+(`rangeRowIds`, `writeRange`, the `pasteCell` action). Twenty-four episodes of the same
+show mean the same title typed twenty-four times otherwise. The range is anchor-to-focus
+in the *focused column only* — there is no horizontal range, because the columns hold
+unrelated quantities and a rectangular paste across them has no meaning here. `writeRange`
+refuses a non-editable column outright rather than dropping the write silently, since it
+is the last gate before a value that reaches the backend. Paste and `Delete` act on the
+range; fill-down prefers it when it spans more than one row and otherwise falls back to
+the ticked rows. Every write in a range is **one undo**.
+
+The same `Shift+Arrow` still ticks the valid rows it passes, so the range and the rename
+queue are drawn by one gesture but stay two things: the ticks are what will be renamed
+and can hold rows nowhere near the cursor, the range is what was just drawn. The range is
+painted `--signal-amber-dim` and only when it spans more than one row — a single cell
+already has its focus ring, and the ring must keep winning in the cascade.
+
+**Columns are draggable from the header** (6px handle, double-click restores the model's
+width) and every value is clipped with an ellipsis and repeated in a `title`, so a
+truncated Plex name is still readable. A dragged column stops growing — the user asked
+for that many pixels. Widths are component state and are deliberately not persisted.
 
 **Triage is where a season gets settled in one keystroke.** The pick travels back
 as `forced_key`, not as a finished name, so the backend still builds the title,
@@ -484,13 +707,68 @@ twenty-four subtly different conventions. Movies are deliberately not grouped. I
 a window over the grid, not a screen — the rows behind it are the context for the
 decision, and a full-bleed takeover hid them.
 
-**`Ctrl+Shift+G` triages the focused row whatever the scoring made of it.** The
+**`Ctrl+G` triages the focused row whatever the scoring made of it.** The
 queue only holds what the scoring *admitted* it could not settle, and the match most
 in need of correcting is often the one it was sure of: `One Piece - 1015.mkv` is
 `matched` at 1.00 and wrong. So the row-local entry ignores status and asks only
-whether there is anything to choose between (`candidates`, which is populated on
-every analyzed row). `openTriage` falls back to it when the row under the cursor is
-not in the queue, so `Enter` on a settled status dot does the useful thing.
+whether the row has been analyzed at all. `openTriage` falls back to it when the row
+under the cursor is not in the queue, so `Enter` on a settled status dot does the
+useful thing.
+
+**Triage also searches by hand, and a row with no candidates is precisely why.**
+`BrBa S01E02.mkv` and `all'ombra dell'olmo (2010).avi` come back with an empty list
+and used to arrive here with nothing to do about it — so `needsTriage` queues every
+`review` and `error` row, candidates or not, and the overlay opens with the cursor in
+the search box when there is nothing to choose from. The query is not a new endpoint:
+it re-runs `/api/analyze` with the typed title and year (`api.searchCandidates`) and
+keeps only `candidates`, so the ranking, the scores, the posters and the blurbs stay
+one implementation and the row's own `media_type` is the provider filter for free —
+TMDB for a movie, TVDB for an episode, which the overlay names. A row whose type is
+`unknown` disables the search and points at `Alt+C`, because `enrich_media_item`
+would re-parse the filename and discard the typed title.
+
+**The typed title travels with the pick.** `forced_key` is resolved *inside the
+results of a search on the row's own `clean_title`*, so a key found under
+"Breaking Bad" is simply absent from the results for "BrBa" and would be treated as a
+rejection. `TitleOverride` is therefore sent alongside the candidate and written onto
+the affected rows before re-analysis. The converse matters as much: picking from the
+row's *own* candidate list must not carry an override, or triage would rewrite a title
+nobody asked to change. Both directions are pinned in `TriageOverlay.test.tsx`.
+
+**The absolute episode number is the third field, and it is here for the same reason
+the pick is.** `One Piece - 1015.mkv` cannot be corrected in the grid — S21E124 is only
+true of the One Piece the user is about to choose — so the number is typed in triage
+and sent as `absolute_episode` with the pick. It is deliberately *outside* the search
+form: it is not a query, it is part of the answer. Both corrections travel in one
+`PickExtras` and stay distinct inside it — `override` is row fields, spread onto the
+items before re-analysis; `absolute` is a question only the backend can answer. See
+**Absolute episode numbers** above for what happens to it there.
+
+**The confirmation is a tally, not a list** (`ConfirmRename.tsx`). It counts the batch
+by kind — two tiles, an icon each, the number at 26px — and warns, in rust, that the
+rename cannot be undone. That is the whole panel.
+
+It used to print the exact old and new name of every file, on the grounds that a wrong
+name raises no error and the string is the only thing that can actually be checked.
+**That check has not gone anywhere: the grid is the list.** `Nome proposto` is one of
+its columns, it is sorted, it is where those names were read and corrected in the first
+place, and it is still on screen behind the scrim. Reprinting forty lines here only
+pushed the count and the warning off the top of the panel, which is the one thing this
+screen has that the grid does not. So do not re-add the list — the useful summary is
+the one the grid cannot give: "two films and thirty-eight episodes" is checkable
+against what the user meant to tick, where "forty files" is not, and a kind with
+nothing in it is left out entirely because "0 film" is the one number nobody needs to
+read.
+
+The irreversibility warning is shown on **every** batch, not only a doubtful one: a
+confident match renamed onto the wrong path is exactly as permanent as a doubtful one.
+When rows *are* doubtful it gains a second line, in ochre, saying how many and sending
+the user back to the grid to read their names. Confirming is `Ctrl+Enter` — the chord
+that opened the dialog also closes it, so a rename decided from the keyboard never
+needs the mouse — and `App.tsx` stands its own binding down while `mode === 'confirm'`
+so the two cannot both fire. Deliberately not bare `Enter`: the confirm button already
+has the focus for anyone who wants that, and a modifier is the right cost for a write
+to a Plex library.
 
 **There is one bulk action, and it is the rescan.** No "match everything again"
 button exists, and none should be added. A match can now be changed by hand —
@@ -510,6 +788,14 @@ scoring that had already got it wrong. What remains is deliberate and narrow:
 **The settings panel refuses what it cannot detect later.** Four sections, and each
 one is a way to be wrong that produces no error anywhere downstream:
 
+- **Scan** holds the starting directory and, beside it, **how many files are analysed
+  at once**. It sits there rather than in a section of its own because nothing else
+  bounds the fan-out: the pool size *is* how hard TMDB and TVDB are hit, and a
+  provider that starts rate-limiting produces rows that failed for no visible reason —
+  indistinguishable from a genuine no-match, the same failure mode as a revoked key.
+  So the field is validated (1–100, whole numbers) and Apply is dead while it is wrong.
+  It is held as text while being typed, because a number input is momentarily empty
+  when a two-digit value is replaced.
 - **Languages** are tokens, not a comma-separated string, and each is checked against
   ISO 639-1 as it is typed (`lib/languages.ts`). A bad code is silent otherwise —
   TMDB answers an unknown `language` with untranslated results and TVDB 404s the
@@ -520,12 +806,19 @@ one is a way to be wrong that produces no error anywhere downstream:
   `ThresholdSlider.tsx`). `review > match` is a `400` from `/api/analyze` on every
   row, which reads as "the app is broken"; making it unreachable beats validating it.
   The three bands are painted in the colours of the row states they produce.
-- **API keys** are one icon each, checked live against `GET /api/keys` on open and on
+- **API keys** and **Cache** share one row, split `1fr 2fr`: two short labels with their
+  status icons pushed to the right edge of the box need no more, and the width they give
+  up goes to the four cache tiles, laid out two by two so each lines up with a key row
+  beside it. The keys are one icon each, checked live against `GET /api/keys` on open and on
   demand. `/api/config` only ever said whether a key was *set*, and a set-but-revoked
-  key presents as "Could not find a match" on every row — indistinguishable from a
+  key presents as "Nessuna corrispondenza trovata" on every row — indistinguishable from a
   genuine no-match. Four states, because `unreachable` must never be read as
   "rotate your key"; DNS on this network has failed exactly that way.
-- **Cache** is a readout and a button.
+
+Every score the UI prints is a **percentage**, from one helper (`lib/format.ts`). It
+used to be `0.50` in the grid, `0.45` on the threshold thumbs and `50%` in triage —
+three renderings of one quantity, so the threshold that decided a row could not be
+compared by eye with the row's own number.
 
 There is no **Behaviour** section any more. "Tick confident matches" duplicated what
 the match threshold already means, and two controls over one behaviour let the
@@ -584,8 +877,10 @@ proposed more names but two of them were wrong *and* labelled `"matched"`.
 `One Piece - 1015.mkv` is the one row here that is confidently wrong, and it is
 worth keeping that way: it is the only fixture that demonstrates what the UI is
 *for*. No amount of scoring recovers it — the parse is wrong before the API is
-ever asked — so the answer has to come from the user, and the grid is where it
-comes from.
+ever asked — so the answer has to come from the user. It now takes one field:
+`Ctrl+G`, type `1015` in **N° assoluto**, pick the series, and the backend maps it
+to S21E124 off that series' own episode list. Correcting `S` and `E` by hand in the
+grid still works and still requires knowing the answer first.
 
 ### Capitalisation
 
@@ -645,7 +940,7 @@ Tracked so they aren't rediscovered. Each has a test.
 - Nothing calls `load_dotenv()`. The keys reach the app only through
   `docker-compose.yml`, so a locally started `uvicorn` has none — and
   `enrich_media_item` guards on `if ... and tmdb_key`, so every row comes back
-  `status="error"` with `"Could not find a match"`. That message is
+  `status="error"` with `"Nessuna corrispondenza trovata"`. That message is
   indistinguishable from a genuine no-match, which is why a missing key
   presents as an API problem rather than a configuration one. Source `.env`
   manually; see the `dev` skill.
@@ -674,11 +969,34 @@ the rollback journal; re-enable the rule in that commit.
   `.claude/hooks/guard-bash.sh` blocks shell redirects into it and any
   `git add` that names it. Add new configuration keys to `.env.example`,
   `docker-compose.yml` and the `README.md` table together.
-- The version string now lives **only** in `frontend/package.json`. The
-  redesigned shell does not print one — the two copies had drifted (`v1.9.0` vs
-  `1.0.0`) and a version rendered in the corner of a single-user home-lab app
-  was not worth a second source of truth. Releases are cut by pushing a `v*`
-  tag, which triggers the GHCR build and the Portainer webhook.
+- The version string lives **only** in `frontend/package.json`, and it is read
+  from there (`src/buildinfo.ts` imports it) rather than copied. The two copies
+  had drifted badly — the published line was already at `v1.9.0` while
+  `package.json` still said `1.0.0` — which is why the redesign is versioned
+  **2.0.0**, continuing the tags rather than the stale file.
+  Note that the `v*` tags exist as tags only: no GitHub *Release* object was
+  ever cut from them, so the releases API answers empty and
+  `get_latest_release` 404s. `git ls-remote --tags origin` is the honest check.
+
+### Versioning: bump it yourself, tag only when asked
+
+Every change carries its own version bump, made in the same edit as the change,
+without being asked:
+
+- **Build.** `BUILD` in `frontend/src/buildinfo.ts`, `+1`, on **every** change
+  that reaches the browser. It is the identifier the Informazioni panel leads
+  with, and the only thing that tells two builds of one version apart. A change
+  that is backend-only does not need it; anything under `frontend/src/` does.
+- **SemVer.** `version` in `frontend/package.json`, sized to the change:
+  *patch* for a fix or an internal tidy-up, *minor* for anything the user gains
+  or that changes how the UI behaves, *major* for a change that invalidates how
+  the tool is used or breaks the API contract. Re-run
+  `npm install --package-lock-only` so `package-lock.json` follows.
+
+**Do not tag.** A `v*` tag is a deploy — it triggers the GHCR build and the
+Portainer webhook — so cutting one is the user's decision. Say which tag the
+current version implies and wait for an explicit yes. Everything up to that
+point (bumping, committing, pushing the branch) is ordinary work.
 
 ## Testing this app for real
 
@@ -734,7 +1052,7 @@ entry there as a bug report with the reproduction already attached.
 ```
 [[case]]
 file   = "One Piece - 1015.mkv"
-expect = "One Piece - S20E63 - ….mkv"
+expect = "One Piece - S21E124 - ….mkv"
 note   = "absolute numbering; guessit reads it as S10E15"
 status = "review"          # optional: matched | review | error
 lang   = ["it", "en"]      # optional, default it,en

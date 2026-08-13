@@ -26,7 +26,7 @@ the app against real files.
 in production the keys are injected by `docker-compose.yml`, so a bare
 `uvicorn` starts with none of them. `enrich_media_item()` guards on
 `if ... and tmdb_key`, so with no key every row comes back `status="error"`
-with `"Could not find a match"` — indistinguishable from a genuine no-match,
+with `"Nessuna corrispondenza trovata"` — indistinguishable from a genuine no-match,
 which is why a missing key looks exactly like "the API is down".
 
 8001 is not arbitrary: `frontend/vite.config.ts` proxies `/api` to

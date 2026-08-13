@@ -1,5 +1,6 @@
 import React from 'react';
 import { Bands, moveMatch, moveReview } from '../lib/bands';
+import { percent } from '../lib/format';
 
 /**
  * The two confidence bands, on one track.
@@ -22,6 +23,7 @@ interface ThresholdSliderProps extends Bands {
     onChange: (next: Bands) => void;
 }
 
+/** Geometry, not text: the gradient stops keep the decimal the thumbs are placed with. */
 const pct = (value: number): string => `${(value * 100).toFixed(1)}%`;
 
 export const ThresholdSlider: React.FC<ThresholdSliderProps> = ({ review, match, onChange }) => {
@@ -34,10 +36,10 @@ export const ThresholdSlider: React.FC<ThresholdSliderProps> = ({ review, match,
         <div className="bands">
             <div className="bands-labels">
                 <span className="bands-label" style={{ left: pct(review) }}>
-                    Propose <strong className="mono">{review.toFixed(2)}</strong>
+                    Proponi <strong className="mono">{percent(review)}</strong>
                 </span>
                 <span className="bands-label" style={{ left: pct(match) }}>
-                    Auto-select <strong className="mono">{match.toFixed(2)}</strong>
+                    Spunta da solo <strong className="mono">{percent(match)}</strong>
                 </span>
             </div>
 
@@ -59,7 +61,7 @@ export const ThresholdSlider: React.FC<ThresholdSliderProps> = ({ review, match,
                     max={1}
                     step={0.01}
                     value={review}
-                    aria-label="Propose a name at or above"
+                    aria-label="Proponi un nome da questo valore in su"
                     onChange={(event) => setReview(Number(event.target.value))}
                 />
                 <input
@@ -69,15 +71,15 @@ export const ThresholdSlider: React.FC<ThresholdSliderProps> = ({ review, match,
                     max={1}
                     step={0.01}
                     value={match}
-                    aria-label="Auto-select at or above"
+                    aria-label="Spunta da solo da questo valore in su"
                     onChange={(event) => setMatch(Number(event.target.value))}
                 />
             </div>
 
             <div className="bands-legend" aria-hidden="true">
-                <span style={{ width: pct(review) }}>no name proposed</span>
-                <span style={{ width: pct(match - review) }}>held for review</span>
-                <span style={{ width: pct(1 - match) }}>renamed unattended</span>
+                <span style={{ width: pct(review) }}>nessun nome proposto</span>
+                <span style={{ width: pct(match - review) }}>da rivedere</span>
+                <span style={{ width: pct(1 - match) }}>rinominato senza chiedere</span>
             </div>
         </div>
     );

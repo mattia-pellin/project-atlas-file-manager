@@ -39,7 +39,12 @@ export interface MediaItem {
     tvdb_id?: number | null;
     // 'review' is a match the backend scored but does not trust. The name is
     // proposed and editable, but the row is deliberately not auto-selected.
-    status: 'pending' | 'matched' | 'review' | 'renaming' | 'error' | 'success';
+    //
+    // 'analyzing' and 'renaming' are the two the backend never sends: the client sets
+    // them on the row it is about to ask about, so the dot spins on that row instead of
+    // the whole grid sitting at `pending` while six requests are in flight. They are
+    // never sent back — `analyzeAll` posts the untouched item.
+    status: 'pending' | 'analyzing' | 'matched' | 'review' | 'renaming' | 'error' | 'success';
     confidence?: number | null;
     message?: string | null;
     /** Every candidate that was scored, best first. Empty until the row is analyzed. */
@@ -62,7 +67,7 @@ export interface AppConfig {
 /**
  * The result of *using* a key, which is a different question from `tmdb_configured`.
  *
- * Four states because three of them used to arrive as the same "Could not find a match":
+ * Four states because three of them used to arrive as the same "Nessuna corrispondenza trovata":
  * a key that is missing, one the provider rejected and a provider that never answered
  * call for three different things to do.
  */
@@ -81,6 +86,12 @@ export interface AnalyzeOptions {
     languages: string;
     /** A candidate picked by hand in triage. Settles the match instead of the scoring. */
     forcedKey?: string;
+    /**
+     * The number the file is labelled with when the library numbers episodes absolutely
+     * (`One Piece - 1015.mkv`). The chosen series' own episode list turns it into a
+     * season and an episode; nothing on this side can, which is why it travels as-is.
+     */
+    absoluteEpisode?: number;
     matchThreshold?: number;
     reviewThreshold?: number;
 }
@@ -89,7 +100,8 @@ const parse = async <T>(response: Response, what: string): Promise<T> => {
     if (!response.ok) {
         // The backend puts the real reason in `detail` — an out-of-root directory, an
         // impossible threshold. Surfacing "failed" instead sends the user looking in
-        // the wrong place.
+        // the wrong place. That half stays in English: it is pinned by the backend's own
+        // tests, and translating it here would let the two drift apart silently.
         const body = await response.json().catch(() => null);
         const detail = body && typeof body.detail === 'string' ? body.detail : String(response.status);
         throw new Error(`${what}: ${detail}`);
@@ -98,13 +110,13 @@ const parse = async <T>(response: Response, what: string): Promise<T> => {
 };
 
 export const getConfig = async (): Promise<AppConfig> =>
-    parse(await fetch('/api/config'), 'Could not read the configuration');
+    parse(await fetch('/api/config'), 'Impossibile leggere la configurazione');
 
 /** Deliberately uncached and never called on a schedule: it spends one request per provider. */
-export const checkKeys = async (): Promise<KeyCheck> => parse(await fetch('/api/keys'), 'Could not check the keys');
+export const checkKeys = async (): Promise<KeyCheck> => parse(await fetch('/api/keys'), 'Impossibile controllare le chiavi');
 
 export const clearCache = async (): Promise<{ cleared: number }> =>
-    parse(await fetch('/api/cache', { method: 'DELETE' }), 'Could not clear the cache');
+    parse(await fetch('/api/cache', { method: 'DELETE' }), 'Impossibile svuotare la cache');
 
 export const scanDirectory = async (directory: string, languages: string): Promise<MediaItem[]> => {
     const response = await fetch('/api/scan', {
@@ -112,7 +124,7 @@ export const scanDirectory = async (directory: string, languages: string): Promi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ directory, language_preference: languages.split(',') })
     });
-    return parse(response, 'Scan failed');
+    return parse(response, 'Scansione fallita');
 };
 
 export const analyzeItem = async (item: MediaItem, options: AnalyzeOptions): Promise<MediaItem> => {
@@ -121,6 +133,7 @@ export const analyzeItem = async (item: MediaItem, options: AnalyzeOptions): Pro
     // every future scan pay for one stale answer.
     const params = new URLSearchParams({ lang_prefs: options.languages });
     if (options.forcedKey) params.set('forced_key', options.forcedKey);
+    if (options.absoluteEpisode !== undefined) params.set('absolute_episode', String(options.absoluteEpisode));
     if (options.matchThreshold !== undefined) params.set('match_threshold', String(options.matchThreshold));
     if (options.reviewThreshold !== undefined) params.set('review_threshold', String(options.reviewThreshold));
 
@@ -131,7 +144,31 @@ export const analyzeItem = async (item: MediaItem, options: AnalyzeOptions): Pro
         // time, and it is by far the bulkiest part of a row.
         body: JSON.stringify({ ...item, candidates: [] })
     });
-    return parse(response, 'Analysis failed');
+    return parse(response, 'Analisi fallita');
+};
+
+/**
+ * A search by hand, for when the scoring came back with nothing to choose between.
+ *
+ * There is no separate search endpoint and there should not be one: `/api/analyze` is
+ * already "here is a title, a year and a type — what do you match?", and it returns the
+ * ranked candidates with the same scores, posters and blurbs triage draws for every
+ * other row. A second endpoint would be a second ranking to keep in step with the first.
+ *
+ * The type is not a parameter because it is the row's: `enrich_media_item` asks TMDB for
+ * a movie and TVDB for an episode, so a search from an episode row cannot return films.
+ *
+ * The answer is thrown away except for `candidates` — this is a probe, and the row is
+ * only rewritten once the user picks something.
+ */
+export const searchCandidates = async (
+    item: MediaItem,
+    title: string,
+    year: number | null,
+    options: AnalyzeOptions
+): Promise<CandidateOut[]> => {
+    const probe = await analyzeItem({ ...item, clean_title: title, year }, options);
+    return probe.candidates ?? [];
 };
 
 export const renameItems = async (items: MediaItem[]): Promise<MediaItem[]> => {
@@ -140,5 +177,5 @@ export const renameItems = async (items: MediaItem[]): Promise<MediaItem[]> => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: items.map((item) => ({ ...item, candidates: [] })) })
     });
-    return parse(response, 'Rename failed');
+    return parse(response, 'Rinomina fallita');
 };

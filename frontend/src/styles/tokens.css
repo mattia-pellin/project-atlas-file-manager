@@ -29,6 +29,10 @@
     --verify-teal: #5aa9a0;
     --caution-ochre: #c9873f;
     --fault-rust: #c4544b;
+    /* The wash behind a destructive button, mixed to the same weight as
+       --signal-amber-dim so "this throws something away" is as loud as "this is the
+       thing you are acting on", and no louder. */
+    --fault-rust-dim: rgba(196, 84, 75, 0.16);
 
     /* The confidence track's top band, and the only green in the product. It is not
        --verify-teal because that dot sits alone on a row, whereas here the three bands

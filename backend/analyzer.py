@@ -247,12 +247,35 @@ def parse_episode_range(episode: Any) -> tuple[int, int] | None:
     return None
 
 
+def locate_absolute_episode(episodes: list[dict[str, Any]], absolute: int) -> tuple[int, int] | None:
+    """Turns an absolute episode number into the `(season, episode)` TVDB files it under.
+
+    Absolute numbering is how long-running anime are labelled on disk — `One Piece -
+    1015.mkv` — and no parser can undo it: guessit reads 1015 as S10E15, which is a real
+    episode of a real series, so the match comes back confident and wrong. The series'
+    own episode list is the only thing that carries both numberings, which is why this
+    cannot be resolved before a candidate has been chosen.
+
+    Specials are skipped. Season 0 shares the absolute sequence in some records, and an
+    absolute number that resolves to a special is never what the filename meant.
+    """
+    for episode in episodes:
+        season = episode.get("seasonNumber")
+        number = episode.get("number")
+        if not isinstance(season, int) or season <= 0 or not isinstance(number, int):
+            continue
+        if episode.get("absoluteNumber") == absolute:
+            return season, number
+    return None
+
+
 async def enrich_media_item(
     item: MediaItem,
     language_prefs: list[str],
     bypass_cache: bool = False,
     forced_key: str | None = None,
     thresholds: matching.Thresholds = matching.DEFAULT_THRESHOLDS,
+    absolute_episode: int | None = None,
 ) -> MediaItem:
     """Fills in `proposed_name`, `status`, `confidence` and the candidate list.
 
@@ -260,6 +283,10 @@ async def enrich_media_item(
     hand instead of by scoring. Because the search results and the extended series
     record are both cached, replaying one choice across every episode of a series
     costs no additional API request.
+
+    `absolute_episode` is the other half of that hand-correction: the number the file
+    is actually labelled with, when the library numbers episodes absolutely. It is
+    resolved against the chosen series and replaces the parsed season and episode.
     """
     # Nothing from the previous analysis of this row may survive it. The client sends
     # the whole item back, so without this a re-analysis that finds nothing — a stale
@@ -291,7 +318,7 @@ async def enrich_media_item(
     ext = os.path.splitext(item.original_name)[1]
 
     # Why the API declined to produce a name, when it did. Kept out of the branches
-    # so the final "no name" path can say something better than "Could not find a match".
+    # so the final "no name" path can say something better than "Nessuna corrispondenza trovata".
     match_reason: str | None = None
 
     if item.media_type == "movie" and tmdb_key:
@@ -329,7 +356,7 @@ async def enrich_media_item(
             item.message = decision.reason or None
 
             if parsed_year and item.year and parsed_year != item.year:
-                note = f"Filename says {parsed_year}, TMDB says {item.year}"
+                note = f"Il nome del file dice {parsed_year}, TMDB dice {item.year}"
                 item.message = f"{item.message} — {note}" if item.message else note
         else:
             match_reason = decision.reason
@@ -343,7 +370,7 @@ async def enrich_media_item(
             # Refuse rather than default to episode 1. A name built on an invented
             # number looks correct and files the episode in the wrong place.
             item.status = "error"
-            item.message = "Could not determine the episode number"
+            item.message = "Numero di episodio non riconosciuto"
             return item
         start_ep, end_ep = ep_range
 
@@ -370,6 +397,27 @@ async def enrich_media_item(
         item.tvdb_id = int(selected_key) if str(selected_key or "").isdigit() else None
         item.candidates = candidates_for_ui(decision.ranked, "tvdb", selected_key=selected_key)
         if series_data:
+            # An absolute number is resolved here and nowhere earlier: only the chosen
+            # series knows where episode 1015 falls, and the season it falls in is also
+            # the one the padding is sized from. It replaces whatever the filename was
+            # read as, range included — an absolute number names exactly one episode.
+            if absolute_episode is not None:
+                located = locate_absolute_episode(series_data.get("episodes_raw", []), absolute_episode)
+                if located is None:
+                    # Refused, not approximated. Renaming to a neighbouring episode is
+                    # the one outcome worse than not renaming at all.
+                    item.status = "error"
+                    item.message = (
+                        f"L'episodio assoluto {absolute_episode} non esiste in {series_data.get('name', '')}".strip()
+                    )
+                    return item
+                season_number, start_ep = located
+                end_ep = start_ep
+                # Written back, so the grid's S and E columns show the numbers the name
+                # was built from rather than the ones the filename was misread as.
+                item.season = season_number
+                item.episode = start_ep
+
             series_name = sanitize_name(format_smart_title(series_data.get("name", "")))
 
             # Padding comes from this season's episode count, not the series total.
@@ -424,7 +472,16 @@ async def enrich_media_item(
     if not item.proposed_name:
         item.status = "error"
         # The scoring reason when there is one: "no candidate cleared the bar" and
-        # "the API key is missing" both used to read as "Could not find a match".
-        item.message = match_reason or "Could not find a match"
+        # "the API key is missing" both used to read as "Nessuna corrispondenza trovata".
+        item.message = match_reason or "Nessuna corrispondenza trovata"
+    elif item.proposed_name == item.original_name:
+        # The file is already named exactly the way this app would name it, which is a
+        # rename that has already happened rather than one that is waiting. Saying
+        # "matched" left it sitting in the same state as the forty rows that do need
+        # writing — and it cannot be ticked anyway, since `resolve_rename_target` and
+        # the frontend's `isRowValid` both refuse a no-op. The confidence stays: how
+        # sure the match was is still worth reading.
+        item.status = "success"
+        item.message = "Già nominato così — niente da rinominare"
 
     return item

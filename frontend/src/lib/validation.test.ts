@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MediaItem } from '../api';
-import { isEpisodeValid, isRowValid, isSeasonValid, isYearValid } from './validation';
+import { isEpisodeValid, isRowValid, isSeasonValid, isYearValid, rowRefusal } from './validation';
 
 const row = (overrides: Partial<MediaItem> = {}): MediaItem => ({
     id: '1',
@@ -75,6 +75,16 @@ describe('isRowValid', () => {
         expect(isRowValid(row({ proposed_name: 'Show.S01E01.mkv' }))).toBe(false);
     });
 
+    it('rejects a row nothing was found for, however well-formed the rest of it is', () => {
+        // No name means nothing to rename to. This is the gate Ctrl+A and the Space
+        // tick both go through, so an unmatched file cannot end up in the batch.
+        expect(isRowValid(row({ proposed_name: null, status: 'error' }))).toBe(false);
+    });
+
+    it('rejects a proposed name that was blanked by hand', () => {
+        expect(isRowValid(row({ proposed_name: '   ' }))).toBe(false);
+    });
+
     it('rejects an unresolved media type', () => {
         expect(isRowValid(row({ media_type: 'unknown' }))).toBe(false);
     });
@@ -85,5 +95,32 @@ describe('isRowValid', () => {
 
     it('rejects an out-of-range year', () => {
         expect(isRowValid(row({ year: 1800 }))).toBe(false);
+    });
+});
+
+describe('rowRefusal', () => {
+    it('says nothing about a row that can be renamed', () => {
+        expect(rowRefusal(row())).toBeNull();
+    });
+
+    it('does not blame a cell when there is no proposed name', () => {
+        // Nothing is highlighted on such a row, so "correggi le celle evidenziate"
+        // would send the user looking for a red cell that does not exist.
+        const message = rowRefusal(row({ proposed_name: null, status: 'error' }));
+        expect(message).toContain('Nessun nome proposto');
+        expect(message).not.toContain('celle evidenziate');
+    });
+
+    it('says the file is already named that way', () => {
+        expect(rowRefusal(row({ proposed_name: 'Show.S01E01.mkv' }))).toContain('già nominato così');
+    });
+
+    it('points an unresolved type at the chord that flips it', () => {
+        expect(rowRefusal(row({ media_type: 'unknown' }))).toContain('Alt+C');
+    });
+
+    it('blames the cells when a cell is what is wrong', () => {
+        expect(rowRefusal(row({ episode: undefined }))).toContain('celle evidenziate');
+        expect(rowRefusal(row({ year: 1800 }))).toContain('celle evidenziate');
     });
 });

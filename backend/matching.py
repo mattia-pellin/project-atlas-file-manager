@@ -15,6 +15,11 @@ Two consequences of keeping the scoring separate from the clients:
   `test_matching.py` rather than by whatever the live API returned that day;
 - only *raw* API payloads are cached, never scores, so retuning a threshold
   takes effect immediately instead of waiting out a 24h cache entry.
+
+The `reason` strings built here are the exception to "code is English": they are
+printed verbatim on a row and in triage, so they are written in the language the
+one user reads. The assertions that pin them moved with them — a message is part
+of the naming pipeline's contract, not decoration.
 """
 
 import re
@@ -54,6 +59,16 @@ YEAR_EXACT = 1.0
 YEAR_NEAR = 0.93
 YEAR_UNKNOWN = 0.85
 YEAR_MISMATCH = 0.55
+
+
+def percent(value: float) -> str:
+    """A score as the UI prints it, so a message and a column cannot disagree.
+
+    Mirrors `frontend/src/lib/format.ts`, half-up included: Python's `round` goes to
+    even, so `round(0.125 * 100)` is 12 where JavaScript's `Math.round` gives 13.
+    """
+    return f"{int(value * 100 + 0.5)}%"
+
 
 _COMBINING = unicodedata.combining
 _APOSTROPHES = re.compile("['\u2019\u02bc]")
@@ -283,7 +298,7 @@ def decide(
     longer competing with them and its score stands undamped.
     """
     if not ranked:
-        return Decision(verdict="rejected", confidence=0.0, reason="No candidate returned by the API")
+        return Decision(verdict="rejected", confidence=0.0, reason="Nessun candidato restituito dall'API")
 
     leader = ranked[0]
     conf = leader.score if disambiguated else confidence(ranked)
@@ -292,7 +307,7 @@ def decide(
         return Decision(
             verdict="rejected",
             confidence=conf,
-            reason=f"No confident match — closest was {leader.candidate.label} at {conf:.2f}",
+            reason=f"Nessuna corrispondenza sicura — il più vicino era {leader.candidate.label} al {percent(conf)}",
             ranked=tuple(ranked),
         )
 
@@ -304,11 +319,11 @@ def decide(
     rival = ranked[1] if len(ranked) > 1 else None
     if rival is not None and leader.score - rival.score < DECISIVE_MARGIN:
         reason = (
-            f"Ambiguous ({conf:.2f}): {leader.candidate.label} and {rival.candidate.label} "
-            f"score alike — confirm before renaming"
+            f"Ambiguo ({percent(conf)}): {leader.candidate.label} e {rival.candidate.label} "
+            f"hanno punteggi equivalenti — conferma prima di rinominare"
         )
     else:
-        reason = f"Low confidence ({conf:.2f}) for {leader.candidate.label} — confirm before renaming"
+        reason = f"Confidenza bassa ({percent(conf)}) per {leader.candidate.label} — conferma prima di rinominare"
 
     return Decision(
         verdict="review", confidence=conf, reason=reason, payload=leader.candidate.payload, ranked=tuple(ranked)

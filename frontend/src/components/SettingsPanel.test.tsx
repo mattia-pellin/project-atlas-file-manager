@@ -30,7 +30,7 @@ const render = (props: Partial<React.ComponentProps<typeof SettingsPanel>> = {})
     });
 
 const applyButton = () =>
-    [...container.querySelectorAll('button')].find((button) => button.textContent === 'Apply') as HTMLButtonElement;
+    [...container.querySelectorAll('button')].find((button) => button.textContent === 'Applica') as HTMLButtonElement;
 
 const chip = (code: string) =>
     [...container.querySelectorAll('.lang-chip')].find((element) => element.textContent?.startsWith(code));
@@ -72,7 +72,7 @@ describe('SettingsPanel', () => {
             render({ settings: { ...DEFAULT_SETTINGS, languages: 'it,xx' } });
         });
         expect(applyButton().disabled).toBe(true);
-        expect(container.querySelector('.field-error')?.textContent).toBe('xx is not a language code');
+        expect(container.querySelector('.field-error')?.textContent).toBe('xx non è un codice lingua');
         expect(chip('xx')?.className).toContain('is-bad');
     });
 
@@ -92,6 +92,34 @@ describe('SettingsPanel', () => {
             applyButton().click();
         });
         expect(onApply.mock.calls[0][0].languages).toBe('it');
+    });
+
+    it('refuses to apply a pool size outside the range, and passes a good one through', async () => {
+        const onApply = vi.fn();
+        await act(async () => {
+            render({ onApply });
+        });
+        const pool = container.querySelector('#pool-size') as HTMLInputElement;
+        expect(pool.value).toBe(String(DEFAULT_SETTINGS.analyzeConcurrency));
+
+        // React reads the value off the node's own descriptor, so it has to be set there.
+        const type = (value: string) =>
+            act(() => {
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(pool, value);
+                pool.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+
+        await type('0');
+        expect(applyButton().disabled).toBe(true);
+        await type('');
+        expect(applyButton().disabled).toBe(true);
+
+        await type('4');
+        expect(applyButton().disabled).toBe(false);
+        await act(async () => {
+            applyButton().click();
+        });
+        expect(onApply.mock.calls[0][0].analyzeConcurrency).toBe(4);
     });
 
     it('promotes the clicked code to the front, since only the first one decides', async () => {

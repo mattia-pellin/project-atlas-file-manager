@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MediaItem } from '../api';
-import { cellText, COLUMNS, ColumnId, confidenceText } from '../lib/columns';
-import { GridAction, GridState, rowIndexOf } from '../lib/gridReducer';
+import { cellText, choiceFromKey, choiceLabel, COLUMNS, ColumnId, ColumnSpec, columnIndex } from '../lib/columns';
+import { GridAction, GridState, rangeRowIds, rowIndexOf } from '../lib/gridReducer';
 import { isTypingKey, matchesChord } from '../lib/keymap';
+import { TYPE_CHORD } from '../lib/shortcuts';
 import { isEpisodeValid, isRowValid, isSeasonValid, isYearValid } from '../lib/validation';
 import { StatusDot } from './StatusDot';
 
@@ -24,6 +25,8 @@ interface GridProps {
     onOpenTriage: (rowId: string) => void;
     onCopy: (text: string) => void;
     onPaste: () => void;
+    /** Opens the explanation of the C.S. column. The shell owns the overlays. */
+    onExplainConfidence: () => void;
 }
 
 /** Which single cell is to blame, so the row's red edge points somewhere. */
@@ -39,11 +42,41 @@ const cellIsInvalid = (item: MediaItem, column: ColumnId): boolean => {
 const ROW_HEIGHT = 36;
 const PAGE = 20;
 
+/** Narrow enough to park a column out of the way, wide enough to still find its handle. */
+const MIN_COLUMN_WIDTH = 44;
+
+const TYPE_COLUMN = columnIndex('media_type');
+
 const helper = createColumnHelper<MediaItem>();
 
-export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCopy, onPaste }) => {
+const InfoGlyph: React.FC = () => (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.6" />
+        <path d="M6 5.3v3" strokeLinecap="round" />
+        <path d="M6 3.5v.1" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+);
+
+/** Bars of decreasing length under a down arrow: the sort icon everything else uses. */
+const SortGlyph: React.FC = () => (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+        <path d="M1.6 3h6M1.6 6.5h4M1.6 10h2" strokeLinecap="round" />
+        <path d="M10 2.6v7.8M8.2 8.6 10 10.4l1.8-1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+);
+
+export const Grid = React.forwardRef<HTMLDivElement, GridProps>(function Grid(
+    { state, dispatch, onOpenTriage, onCopy, onPaste, onExplainConfidence },
+    ref
+) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const editRef = useRef<HTMLInputElement>(null);
+    /**
+     * Widths the user has dragged to. Only the dragged ones are here: everything else
+     * keeps the column model's own width, so a resize is a local override rather than a
+     * second, competing source of truth for the layout.
+     */
+    const [widths, setWidths] = useState<Partial<Record<ColumnId, number>>>({});
 
     const columns = useMemo(
         () =>
@@ -75,6 +108,19 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
 
     const focusIndex = rowIndexOf(state, state.focusRowId);
 
+    /**
+     * The cells a paste or a delete would write, painted before it happens.
+     *
+     * Empty unless the run spans more than one row and the column can actually take a
+     * value: a single focused cell is already shown by its own ring, and highlighting a
+     * run down a read-only column would promise a write that `writeRange` refuses.
+     */
+    const rangeIds = useMemo(() => {
+        if (!COLUMNS[state.focusColumn]?.editable) return new Set<string>();
+        const ids = rangeRowIds(state);
+        return ids.length > 1 ? new Set(ids) : new Set<string>();
+    }, [state]);
+
     // Keyboard navigation is worthless if the cell you moved to is off screen.
     useEffect(() => {
         if (focusIndex >= 0) virtualizer.scrollToIndex(focusIndex, { align: 'auto' });
@@ -84,13 +130,51 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
         if (state.editing) editRef.current?.focus();
     }, [state.editing]);
 
+    // A dragged column stops growing: the user asked for that many pixels, so giving it
+    // more when the window is wide would make the handle feel like it did nothing.
     const template = useMemo(
         () =>
-            COLUMNS.map((spec) =>
-                spec.grow ? `minmax(${spec.width}px, ${spec.id === 'proposed_name' ? 1.6 : 1}fr)` : `${spec.width}px`
-            ).join(' '),
-        []
+            COLUMNS.map((spec) => {
+                const dragged = widths[spec.id];
+                if (dragged !== undefined) return `${dragged}px`;
+                return spec.grow
+                    ? `minmax(${spec.width}px, ${spec.id === 'proposed_name' ? 1.6 : 1}fr)`
+                    : `${spec.width}px`;
+            }).join(' '),
+        [widths]
     );
+
+    /**
+     * Dragging measures the column as rendered rather than trusting the model: a growing
+     * column is whatever the window left it, and starting the drag from its declared
+     * minimum would make it jump before it moved.
+     */
+    const startResize = useCallback((spec: ColumnSpec, event: React.PointerEvent<HTMLSpanElement>) => {
+        const head = event.currentTarget.parentElement;
+        if (!head) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const startX = event.clientX;
+        const startWidth = head.getBoundingClientRect().width;
+
+        const onMove = (move: PointerEvent) => {
+            const next = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + move.clientX - startX));
+            setWidths((current) => ({ ...current, [spec.id]: next }));
+        };
+        const onUp = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            document.body.classList.remove('is-resizing-column');
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        // The cursor has to survive leaving the 6px handle, or a fast drag looks broken.
+        document.body.classList.add('is-resizing-column');
+    }, []);
+
+    const resetWidth = useCallback((spec: ColumnSpec) => {
+        setWidths(({ [spec.id]: _dropped, ...rest }) => rest);
+    }, []);
 
     const onKeyDown = useCallback(
         (event: React.KeyboardEvent) => {
@@ -174,6 +258,14 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
                 dispatch({ type: 'clearCell' });
                 return;
             }
+            // Flip the type from wherever the cursor is. Naming a movie as an episode
+            // asks the wrong API entirely, so it is the correction most often needed and
+            // the one least worth walking to a column for.
+            if (matchesChord(event, TYPE_CHORD)) {
+                event.preventDefault();
+                dispatch({ type: 'cycleChoice', column: TYPE_COLUMN });
+                return;
+            }
             if (matchesChord(event, 'mod+d')) {
                 event.preventDefault();
                 dispatch({ type: 'fillDown' });
@@ -203,10 +295,10 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
             // Type-to-edit, last so it can never shadow a chord.
             if (isTypingKey(event) && spec?.editable) {
                 event.preventDefault();
-                // On a choice cell the initial letter *is* the answer — "m" is movie —
+                // On a choice cell the initial letter *is* the answer — "f" is film —
                 // rather than the first character of a value being typed.
                 if (spec.choices) {
-                    const wanted = spec.choices.find((choice) => choice.startsWith(event.key.toLowerCase()));
+                    const wanted = choiceFromKey(spec, event.key);
                     if (wanted && state.focusRowId) {
                         dispatch({ type: 'setCell', rowId: state.focusRowId, column: state.focusColumn, text: wanted });
                     }
@@ -229,11 +321,57 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
     );
 
     return (
-        <div className="grid" role="grid" aria-rowcount={rows.length} tabIndex={0} onKeyDown={onKeyDown}>
+        <div className="grid" role="grid" aria-rowcount={rows.length} tabIndex={0} ref={ref} onKeyDown={onKeyDown}>
             <div className="grid-head" style={{ gridTemplateColumns: template }} role="row">
                 {COLUMNS.map((spec) => (
-                    <div key={spec.id} role="columnheader" className={`grid-head-cell align-${spec.align ?? 'left'}`}>
-                        {spec.header}
+                    <div
+                        key={spec.id}
+                        role="columnheader"
+                        className={`grid-head-cell align-${spec.headerAlign ?? spec.align ?? 'left'}`}
+                    >
+                        <span className="grid-head-label">{spec.header}</span>
+                        {/*
+                         * Reordering is a command, not something an edit does on its own. An
+                         * edit marks the row stale and re-matches it, and sorting on that
+                         * answer moved the row out from under the cursor that had just typed
+                         * into it. The order is still the same total order — this is the
+                         * button that asks for it.
+                         */}
+                        {spec.id === 'status' && (
+                            <button
+                                type="button"
+                                className="head-sort"
+                                tabIndex={-1}
+                                aria-label="Riordina la tabella"
+                                title="Riordina la tabella — film, titolo, anno, stagione, episodio"
+                                disabled={state.rows.length === 0}
+                                onClick={() => dispatch({ type: 'sort' })}
+                            >
+                                <SortGlyph />
+                            </button>
+                        )}
+                        {spec.id === 'confidence' && (
+                            <button
+                                type="button"
+                                className="head-info"
+                                tabIndex={-1}
+                                aria-label="Che cos'è il confidence score"
+                                title="Che cos'è il confidence score"
+                                onClick={onExplainConfidence}
+                            >
+                                <InfoGlyph />
+                            </button>
+                        )}
+                        {/* The status column holds the dot and the sort button; nothing to widen. */}
+                        {spec.id !== 'status' && (
+                            <span
+                                className="col-resizer"
+                                aria-hidden="true"
+                                title="Trascina per ridimensionare — doppio clic per ripristinare"
+                                onPointerDown={(event) => startResize(spec, event)}
+                                onDoubleClick={() => resetWidth(spec)}
+                            />
+                        )}
                     </div>
                 ))}
             </div>
@@ -267,6 +405,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
                             >
                                 {row.getVisibleCells().map((cell, columnIdx) => {
                                     const spec = COLUMNS[columnIdx];
+                                    const text = spec.id === 'status' ? '' : cellText(item, spec.id);
                                     const isFocused = isFocusRow && state.focusColumn === columnIdx;
                                     const edit =
                                         state.editing &&
@@ -283,7 +422,11 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
                                                 'grid-cell',
                                                 `align-${spec.align ?? 'left'}`,
                                                 spec.mono ? 'mono' : '',
+                                                spec.id === 'confidence' ? 'is-confidence' : '',
                                                 isFocused ? 'is-focused' : '',
+                                                columnIdx === state.focusColumn && rangeIds.has(item.id)
+                                                    ? 'is-in-range'
+                                                    : '',
                                                 cellIsInvalid(item, spec.id) ? 'is-cell-invalid' : ''
                                             ]
                                                 .filter(Boolean)
@@ -304,6 +447,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
                                                 />
                                             ) : spec.choices ? (
                                                 <ChoiceCell
+                                                    spec={spec}
                                                     value={cellText(item, spec.id)}
                                                     choices={spec.choices}
                                                     onPick={(text) =>
@@ -311,12 +455,12 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
                                                     }
                                                 />
                                             ) : (
-                                                <span className="grid-value">
+                                                // The value is clipped with an ellipsis when the column is
+                                                // narrower than it, so the whole of it lives in the tooltip —
+                                                // a truncated Plex name is exactly the thing you need to read.
+                                                <span className="grid-value" title={text || undefined}>
                                                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                                 </span>
-                                            )}
-                                            {spec.id === 'proposed_name' && !edit && confidenceText(item) && (
-                                                <span className="confidence mono">{confidenceText(item)}</span>
                                             )}
                                         </div>
                                     );
@@ -328,7 +472,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
             </div>
         </div>
     );
-};
+});
 
 /**
  * A cell with a fixed set of values, shown as the values themselves.
@@ -338,11 +482,12 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch, onOpenTriage, onCop
  * as neither movie nor episode. Both answers being visible at once means the cell can
  * be read without being opened, and changed in one click or one key.
  */
-const ChoiceCell: React.FC<{ value: string; choices: readonly string[]; onPick: (value: string) => void }> = ({
-    value,
-    choices,
-    onPick
-}) => (
+const ChoiceCell: React.FC<{
+    spec: ColumnSpec;
+    value: string;
+    choices: readonly string[];
+    onPick: (value: string) => void;
+}> = ({ spec, value, choices, onPick }) => (
     <span className="choice">
         {choices.map((choice) => (
             <button
@@ -353,7 +498,8 @@ const ChoiceCell: React.FC<{ value: string; choices: readonly string[]; onPick: 
                 tabIndex={-1}
                 onClick={() => onPick(choice)}
             >
-                {choice}
+                {/* The label is translated; the value sent back never is. */}
+                {choiceLabel(spec, choice)}
             </button>
         ))}
     </span>

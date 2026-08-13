@@ -1,6 +1,7 @@
 import { MediaItem } from '../api';
 import { COLUMNS, ColumnSpec, EditableField, parseCell } from './columns';
-import { isRowValid } from './validation';
+import { sortRows } from './sort';
+import { isRowValid, rowRefusal } from './validation';
 
 /**
  * Every keyboard interaction the grid has, as one pure reducer.
@@ -65,8 +66,10 @@ export type GridAction =
     | { type: 'clearSelection' }
     | { type: 'setSelection'; ids: string[] }
     | { type: 'fillDown' }
-    | { type: 'cycleChoice' }
+    | { type: 'cycleChoice'; column?: number }
+    | { type: 'sort' }
     | { type: 'clearCell' }
+    | { type: 'pasteCell'; text: string }
     | { type: 'undo' }
     | { type: 'redo' }
     | { type: 'dismissNotice' }
@@ -90,6 +93,27 @@ export const rowIndexOf = (state: GridState, id: string | null): number =>
 
 export const focusedRow = (state: GridState): MediaItem | undefined =>
     state.rows.find((row) => row.id === state.focusRowId);
+
+/**
+ * The vertical run of cells the cursor spans: anchor to focus, in the focused column.
+ *
+ * This is the spreadsheet selection, and it is deliberately *not* the same thing as
+ * `selected` — that set is the rename queue, which Space toggles and which the confirm
+ * dialog reads. Shift+arrow happens to grow both, because filling a run of cells and
+ * renaming that run of files are the same intent; but a paste writes into this, never
+ * into a tick the user made somewhere else in the grid.
+ *
+ * One row wide when nothing has been extended, so every caller can treat "the focused
+ * cell" as a range of one and there is no second code path for the common case.
+ */
+export const rangeRowIds = (state: GridState): string[] => {
+    const focus = rowIndexOf(state, state.focusRowId);
+    if (focus < 0) return [];
+    const anchor = rowIndexOf(state, state.anchorRowId);
+    const from = anchor < 0 ? focus : Math.min(anchor, focus);
+    const to = anchor < 0 ? focus : Math.max(anchor, focus);
+    return state.rows.slice(from, to + 1).map((row) => row.id);
+};
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
@@ -167,6 +191,25 @@ const patchFor = (row: MediaItem, columnIndex: number, text: string): Patch | nu
     return { id: row.id, field, before, after };
 };
 
+/**
+ * Writes one string into the focused column of every cell in the range.
+ *
+ * Paste and Delete are the same operation with a different string, and both have to
+ * land as one transaction: forty cells emptied by accident must come back on one
+ * Ctrl+Z, not forty.
+ */
+const writeRange = (state: GridState, text: string): GridState => {
+    const spec = column(state.focusColumn);
+    if (!spec?.editable) return state;
+    const ids = new Set(rangeRowIds(state));
+    const patches = state.rows
+        .filter((row) => ids.has(row.id))
+        .map((row) => patchFor(row, state.focusColumn, text))
+        .filter((patch): patch is Patch => patch !== null);
+    const notice = patches.length > 1 ? `${spec.header || spec.id}: ${patches.length} celle aggiornate` : null;
+    return applyPatches(state, patches, notice);
+};
+
 const moveFocus = (state: GridState, rowDelta: number, columnDelta: number, extend = false): GridState => {
     if (state.rows.length === 0) return state;
     const current = clamp(rowIndexOf(state, state.focusRowId), 0, state.rows.length - 1);
@@ -192,11 +235,12 @@ const moveFocus = (state: GridState, rowDelta: number, columnDelta: number, exte
 export const gridReducer = (state: GridState, action: GridAction): GridState => {
     switch (action.type) {
         case 'setRows': {
-            const ids = new Set(action.rows.map((row) => row.id));
-            const focusRowId = state.focusRowId && ids.has(state.focusRowId) ? state.focusRowId : (action.rows[0]?.id ?? null);
+            const rows = sortRows(action.rows);
+            const ids = new Set(rows.map((row) => row.id));
+            const focusRowId = state.focusRowId && ids.has(state.focusRowId) ? state.focusRowId : (rows[0]?.id ?? null);
             return {
                 ...state,
-                rows: action.rows,
+                rows,
                 focusRowId,
                 anchorRowId: focusRowId,
                 editing: null,
@@ -213,6 +257,18 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
             const updates = new Map(action.rows.map((row) => [row.id, row]));
             return { ...state, rows: state.rows.map((row) => updates.get(row.id) ?? row) };
         }
+
+        /**
+         * Put the rows back in the order `sortRows` defines.
+         *
+         * Deliberately not done inside `mergeRows`. Analysis lands six answers at a
+         * time and each one can rewrite the title the order is built from, so sorting
+         * there would shuffle rows under the cursor while they are being worked in.
+         * The shell asks for this once a batch has finished, which is also the only
+         * moment the order is actually stale.
+         */
+        case 'sort':
+            return { ...state, rows: sortRows(state.rows) };
 
         case 'focusCell':
             return {
@@ -271,9 +327,12 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
         case 'toggleSelection': {
             const row = focusedRow(state);
             if (!row) return state;
-            if (!isRowValid(row)) {
-                return { ...state, notice: 'That row cannot be renamed yet — fix the highlighted cells first' };
-            }
+            // The refusal says which of the three it is: a cell to correct, a row nothing
+            // was found for, or a file already named that way. Only the first has a
+            // highlighted cell to point at, so one generic notice would misdirect the
+            // other two.
+            const refusal = rowRefusal(row);
+            if (refusal) return { ...state, notice: refusal };
             const selected = new Set(state.selected);
             if (selected.has(row.id)) selected.delete(row.id);
             else selected.add(row.id);
@@ -288,7 +347,10 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
             return {
                 ...state,
                 selected,
-                notice: everySelected || skipped === 0 ? null : `${skipped} row(s) skipped — not renameable yet`
+                notice:
+                    everySelected || skipped === 0
+                        ? null
+                        : `${skipped} ${skipped === 1 ? 'riga saltata' : 'righe saltate'} — non rinominabili`
             };
         }
 
@@ -302,13 +364,18 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
             const source = focusedRow(state);
             const spec = column(state.focusColumn);
             if (!source || !spec?.editable) return state;
-            const targets = state.rows.filter((row) => row.id !== source.id && state.selected.has(row.id));
+            // A vertical cell selection is the target when there is one, which is the
+            // spreadsheet reflex. Otherwise the ticked rows, which is what lets a
+            // non-contiguous set — picked one Space at a time — be filled in one go.
+            const range = rangeRowIds(state);
+            const wanted: ReadonlySet<string> = range.length > 1 ? new Set(range) : state.selected;
+            const targets = state.rows.filter((row) => row.id !== source.id && wanted.has(row.id));
             if (targets.length === 0) {
-                return { ...state, notice: 'Select the rows to fill first (space, or shift+arrows)' };
+                return { ...state, notice: 'Seleziona prima le righe da riempire (spazio, o shift+frecce)' };
             }
             const text = String(source[spec.id as EditableField] ?? '');
             const patches = targets.map((row) => patchFor(row, state.focusColumn, text)).filter((patch): patch is Patch => patch !== null);
-            return applyPatches(state, patches, `Filled ${spec.header || spec.id} into ${patches.length} row(s)`);
+            return applyPatches(state, patches, `${spec.header || spec.id} ricopiato in ${patches.length} righe`);
         }
 
         /**
@@ -318,26 +385,32 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
          * whatever character started the edit, which matched no option, so the control
          * looked inert and could commit a value that was neither movie nor episode.
          * Two values means one key: Enter, and again to change your mind.
+         *
+         * `column` names one explicitly, so the same action serves the chord that flips
+         * Type from anywhere on the row. Wrong type is the single most common thing to
+         * have to correct, and walking to its column first is three keystrokes of tax.
          */
         case 'cycleChoice': {
+            const target = action.column ?? state.focusColumn;
             const row = focusedRow(state);
-            const spec = column(state.focusColumn);
+            const spec = column(target);
             if (!row || !spec?.editable || !spec.choices?.length) return state;
             const at = spec.choices.indexOf(String(row[spec.id as EditableField] ?? ''));
             // -1 for "unknown", which is not one of the choices: the first one is next.
-            const patch = patchFor(row, state.focusColumn, spec.choices[(at + 1) % spec.choices.length]);
+            const patch = patchFor(row, target, spec.choices[(at + 1) % spec.choices.length]);
             return patch ? applyPatches(state, [patch]) : state;
         }
 
-        case 'clearCell': {
-            const row = focusedRow(state);
-            const patch = row ? patchFor(row, state.focusColumn, '') : null;
-            return patch ? applyPatches(state, [patch]) : state;
-        }
+        /** Both write the focused column across the whole vertical selection. */
+        case 'clearCell':
+            return writeRange(state, '');
+
+        case 'pasteCell':
+            return writeRange(state, action.text);
 
         case 'undo': {
             const last = state.undo[state.undo.length - 1];
-            if (!last) return { ...state, notice: 'Nothing to undo' };
+            if (!last) return { ...state, notice: 'Niente da annullare' };
             const reverted = invert(last);
             const byId = groupById(reverted);
             return {
@@ -352,7 +425,7 @@ export const gridReducer = (state: GridState, action: GridAction): GridState => 
 
         case 'redo': {
             const next = state.redo[state.redo.length - 1];
-            if (!next) return { ...state, notice: 'Nothing to redo' };
+            if (!next) return { ...state, notice: 'Niente da ripristinare' };
             const byId = groupById(next);
             return {
                 ...state,
