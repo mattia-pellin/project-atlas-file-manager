@@ -13,6 +13,42 @@ from . import matching
 from .models import CandidateOut, KeyStatus
 
 
+def _request_url_without_query(error: BaseException) -> httpx.URL | None:
+    """The URL an httpx error was raised for, query string dropped — or None if it has none.
+
+    `HTTPError.request` is a property that *raises* when the error was constructed
+    without one, so it cannot simply be read.
+    """
+    if not isinstance(error, httpx.HTTPError):
+        return None
+    try:
+        request = error.request
+    except RuntimeError:
+        return None
+    return request.url.copy_with(query=None)
+
+
+def describe_error(error: BaseException) -> str:
+    """The one way a provider error becomes a log line.
+
+    `httpx.HTTPStatusError` stringifies to the whole request URL, and TMDB authenticates
+    with `api_key` in the *query string* — so `print(f"... {error}")` wrote the live key
+    to the container's stdout on every failed search, where `docker compose logs` and
+    anything scraping it keep it indefinitely. A key that has been logged has to be
+    rotated, and nothing about the failure needed it.
+
+    The query is dropped whole rather than the key redacted by name: what must not be
+    logged should not depend on someone remembering to add the next parameter to a list.
+    The path and the status code are what a reader actually wants, and they survive.
+    """
+    url = _request_url_without_query(error)
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"HTTP {error.response.status_code} from {url}"
+    if url is not None:
+        return f"{type(error).__name__} on {url}"
+    return f"{type(error).__name__}: {error}"
+
+
 def is_retryable_error(exception: Exception) -> bool:
     if isinstance(exception, httpx.RequestError):
         return True
@@ -364,7 +400,7 @@ class TMDBClient:
                 try:
                     data = await self._request("/search/movie", params)
                 except Exception as e:
-                    print(f"TMDB search failed for {lang}: {e}")
+                    print(f"TMDB search failed for {lang}: {describe_error(e)}")
                     continue
 
                 results = data.get("results") or []
@@ -440,7 +476,7 @@ class TVDBClientV4:
                     cache.set(cache_key, token, expire=86400)
                     return token
                 except Exception as e:
-                    print(f"TVDB Auth failed: {e}")
+                    print(f"TVDB Auth failed: {describe_error(e)}")
                     return ""
 
     async def verify_key(self) -> KeyStatus:
@@ -518,7 +554,7 @@ class TVDBClientV4:
                     cache.set(cache_key, entries, expire=cache_ttl_seconds())
                     return entries
             except Exception as e:
-                print(f"TVDB search failed: {e}")
+                print(f"TVDB search failed: {describe_error(e)}")
 
             cache.set(cache_key, [], expire=negative_cache_ttl_seconds())
             return []
@@ -700,7 +736,7 @@ class TVDBClientV4:
                 except Exception as e:
                     # A language TVDB does not carry answers 404. Step past it, exactly
                     # as the per-episode call did, and let the next one try.
-                    print(f"TVDB episode names failed for {language}: {e}")
+                    print(f"TVDB episode names failed for {language}: {describe_error(e)}")
                     continue
 
                 complete = True
@@ -808,7 +844,7 @@ class TVDBClientV4:
                 cache.set(cache_key, result, expire=cache_ttl_seconds())
                 return result
             except Exception as e:
-                print(f"TVDB series extended failed: {e}")
+                print(f"TVDB series extended failed: {describe_error(e)}")
                 return None
 
 
