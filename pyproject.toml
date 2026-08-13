@@ -32,7 +32,7 @@ dev = [
     "ruff>=0.9.0",
     # Kept project-scoped on purpose: uv is not installed on this machine, so
     # `.venv/bin/uv` is the only copy. See CLAUDE.md for the bootstrap.
-    "uv>=0.12.0",
+    "uv>=0.12.3",
 ]
 
 [tool.uv]
