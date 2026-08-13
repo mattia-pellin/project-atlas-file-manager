@@ -53,9 +53,10 @@ Run `npm ci` first if `node_modules` is absent.
   Report `TVDB_PIN is empty`, not the key itself.
 - `MEDIA_ROOT` bounds what the app can scan and rename. Make sure it does
   **not** point at the real Plex library during a manual test; `test_media/`
-  is the fixture directory, and it must never be renamed against. (`MEDIA_DIR`
-  in `.env` is a different thing: the host path compose bind-mounts onto
-  `/media`. It has no effect on a local `uvicorn`.)
+  is the fixture directory, and it must never be renamed against. (In the
+  container `MEDIA_ROOT` is fixed at `/media` and the host directory is chosen
+  by the bind mount instead — there is no path variable there to confuse this
+  one with.)
 - To try a **rename**, run `scripts/sandbox-media.sh` and point `MEDIA_ROOT` at
   the `sandbox/media` copy it prints. That is the whole reason the copy exists:
   a rename against `test_media/` rewrites committed fixtures.

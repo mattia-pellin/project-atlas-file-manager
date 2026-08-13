@@ -34,16 +34,24 @@ neither should reappear.)
 | Dev servers | `/dev` |
 | Sync `.venv/` to the lock | `.venv/bin/uv sync` |
 | Reset the writable fixture copy | `scripts/sandbox-media.sh` |
-| Container, against that copy | `GIT_SHA=$(git rev-parse HEAD) MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build` |
+| Container, against that copy | `GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build` |
 
 The dev backend runs on **:8001** (Vite proxies `/api` there, see
 `frontend/vite.config.ts`); the production container serves both on **:8000**
 internally and is **published on :8080** (`PORT` in `.env`, left side of the
 compose mapping only — the `EXPOSE`/`CMD` port in the image stays 8000).
 
-**Never `docker compose up` without overriding `MEDIA_DIR`.** The one in `.env`
-is the real Plex library, and the container mounts it read-write. See *Trying the
-container against the fixtures* below.
+**The library is a mount, not a variable, and its container side is fixed at
+`/media`.** There is no `MEDIA_DIR` any more: it was a host path in `.env`, it
+pointed at the real Plex library, and every `docker compose up` that forgot to
+override it mounted that library read-write. The rule was "never run the command
+without the override", which is a rule a person has to remember every single time.
+
+The committed `docker-compose.yml` now mounts `./sandbox/media` — the throwaway copy
+of `test_media/` — so the default is the safe one and touching the real library takes
+a deliberate `docker-compose.override.yml` (gitignored, merged automatically,
+volumes merged by target). Do not add one here. See *Trying the container against
+the fixtures* below.
 
 ## Dependencies are locked
 
@@ -522,10 +530,10 @@ Everything the app reads or renames must resolve inside a configured root:
 when the automatic-move feature lands, `LIBRARY_ROOT`. It is a *list* so that
 adding the destination library is configuration, not a rewrite.
 
-Do not confuse `MEDIA_ROOT` with the `MEDIA_DIR` in `.env`: the latter is the
-**host** path compose mounts onto `/media`, and the backend never reads it.
-A local `uvicorn` therefore needs `MEDIA_ROOT` set explicitly — see the `dev`
-skill — or every scan returns `400`.
+`MEDIA_ROOT` is the **container** side of the mount and is pinned to `/media` by
+`docker-compose.yml`, which is why the host path is chosen in the `volumes:` entry
+and nowhere else. It stays a variable for exactly one case: a local `uvicorn`, where
+`/media` does not exist and every scan would return `400` — see the `dev` skill.
 
 Containment is checked on the **resolved** path, which is what makes it hold
 against `..`, against an absolute path from the client, and against a symlink out
@@ -1083,10 +1091,11 @@ change rather than swept up later, without being asked:
   instead of skipping it silently.
 
   ```
-  GIT_SHA=$(git rev-parse HEAD) MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build
+  GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build
   ```
 
-  `MEDIA_DIR` is not optional — see the warning in **Commands**. `GIT_SHA` is,
+  The mount needs no flag: the compose file points at `sandbox/media` on its own.
+  `GIT_SHA` is optional,
   but pass it anyway: it is what lets the Informazioni panel name the commit,
   which is the whole point of reloading for someone else to check. Do **not**
   re-run `scripts/sandbox-media.sh` as part of a reload — the fixtures are only
@@ -1139,13 +1148,13 @@ instead:
 
 ```
 scripts/sandbox-media.sh                                  # reset sandbox/media from test_media/
-MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build
+docker compose up -d --build
 ```
 
-`sandbox/` is gitignored. The `MEDIA_DIR` override is not optional and not
-cosmetic: without it compose reads the one in `.env`, which points at the real
-Plex library. Re-run the script to start from clean fixtures again; the app is
-on <http://localhost:8080>.
+`sandbox/` is gitignored, and `./sandbox/media:/media:rw` is what the committed
+compose file mounts — so the fixtures copy is the *default* and reaching a real
+library takes a deliberate override. Re-run the script to start from clean fixtures
+again; the app is on <http://localhost:8080>.
 
 ### Naming cases — the ones found while using it
 

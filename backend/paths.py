@@ -17,9 +17,10 @@ tree. Checking the unresolved string would not.
 import os
 from pathlib import Path
 
-# Container-side roots. Distinct from the `MEDIA_DIR` in `.env`, which is the *host*
-# path docker-compose bind-mounts onto `/media` — same idea, opposite side of the
-# mount, and conflating the two would silently disable containment.
+# Container-side roots, and only ever that. The *host* directory is chosen by the
+# bind mount in docker-compose.yml and is deliberately not readable from here: this
+# module's whole job is to bound what the app may touch, so it must not be told a
+# path by anything that also decides what gets mounted.
 MEDIA_ROOT_VAR = "MEDIA_ROOT"
 LIBRARY_ROOT_VAR = "LIBRARY_ROOT"
 DEFAULT_MEDIA_ROOT = "/media"

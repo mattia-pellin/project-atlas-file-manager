@@ -16,9 +16,25 @@ services:
       - TVDB_PIN=${TVDB_PIN}
       - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
       - LANG_PREFS=${LANG_PREFS:-it,en}
-      # Container side of the mount below, and the only tree the app may touch.
-      # Deliberately not ${MEDIA_DIR}: that is the host path.
+      # Fixed, and not a setting: /media is the container side of the mount below and
+      # the only tree the app may read or rename inside. Point the mount somewhere
+      # else, never this.
       - MEDIA_ROOT=/media
     volumes:
-      - ${MEDIA_DIR}:/media:rw
+      # Right-hand side is `/media` and does not vary. The left-hand side is the
+      # library on the host and is the one thing a deployment has to supply.
+      #
+      # The default here is the throwaway copy of `test_media/` that
+      # `scripts/sandbox-media.sh` builds, so that this file cannot mount anything
+      # anyone cares about. Supply your own in `docker-compose.override.yml`, which
+      # compose merges automatically and which is gitignored:
+      #
+      #   services:
+      #     plex-file-manager:
+      #       volumes:
+      #         - /srv/plex:/media:rw
+      #
+      # Compose merges volumes by *target*, so an override naming `/media` replaces
+      # this line rather than adding a second mount.
+      - ./sandbox/media:/media:rw
     restart: unless-stopped

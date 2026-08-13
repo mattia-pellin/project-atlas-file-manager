@@ -13,23 +13,106 @@ A modern, containerized Single Page Application built to recursively scan, ident
 - **Everything is tunable**: Scan directory, language codes (checked as you type — an unknown one is refused rather than silently ignored by the providers), the two confidence thresholds on one three-colour track, and the API cache, all in the settings panel (`Ctrl+,`). The TMDB and TVDB keys are verified live there, by using them.
 - **One bulk action**: a rescan re-reads the directory and matches it. Everything else is per-row and deliberate — pick a candidate in triage, or correct a cell and watch that row re-match on what you typed. Nothing re-matches a file you already decided.
 
-## Quick Start (Docker Compose)
+## The library is a mount, and it goes at `/media`
 
-1. Create a `.env` file in the root directory:
+Read this before anything else, because it is the one part of the setup that is not
+configurable.
+
+**Whatever directory you want the app to work on must be mounted at `/media` inside
+the container.** There is no environment variable for it. The host side is yours to
+choose; the container side is fixed, and `MEDIA_ROOT` — the root the app refuses to
+read or rename outside of — is set to `/media` by the image's own compose file and
+should be left there.
+
+Mount it `rw`: renaming is what the app is for, and a read-only mount fails at the
+last step of the job rather than at the first.
+
+```
+-v /srv/plex:/media:rw            ✅  the library appears at /media
+-v /srv/plex:/library:rw          ❌  nothing at /media; every scan returns 400
+-v /srv/plex:/media:ro            ❌  scans fine, renames nothing
+```
+
+## Quick start — `docker run`
+
+```bash
+docker run -d --name atlas \
+  -p 8080:8000 \
+  -v /srv/plex:/media:rw \
+  -e TMDB_API_KEY=your_tmdb_api_key \
+  -e TVDB_API_KEY=your_tvdb_api_key \
+  -e TVDB_PIN=your_tvdb_pin \
+  ghcr.io/mattia-pellin/project-atlas-file-manager:latest
+```
+
+The app listens on **8000** inside the container, always. `8080` above is only the
+host side of the mapping — publish it wherever you like. Then open
+<http://localhost:8080>.
+
+## Quick start — Docker Compose
+
+1. Copy `.env.example` to `.env` and fill in the two API keys. Note that the library
+   path is *not* in there — see above.
+
 ```env
-MEDIA_DIR=/path/to/your/real/media
-PORT=8080
 TMDB_API_KEY=your_tmdb_api_key
 TVDB_API_KEY=your_tvdb_api_key
 TVDB_PIN=your_tvdb_pin
+PORT=8080
 ```
 
-2. Run the application:
+2. Point the mount at your library. The committed `docker-compose.yml` deliberately
+   mounts a throwaway test directory, so that a checkout of this repo cannot touch
+   anything you care about. Override it in `docker-compose.override.yml`, which
+   compose merges automatically and which is gitignored:
+
+```yaml
+# docker-compose.override.yml
+services:
+  plex-file-manager:
+    volumes:
+      - /srv/plex:/media:rw
+```
+
+Compose merges volumes by their *target*, so naming `/media` replaces the default
+rather than adding a second mount.
+
+3. Build and start:
+
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
-3. Access the web interface at `http://localhost:8080`.
+4. Open <http://localhost:8080>.
+
+### Deploying the published image
+
+The compose file in this repo builds from source, which is what you want while
+working on it. To *deploy* — Portainer, a NAS, anywhere the source is not checked
+out — write a stack of your own against the image on GHCR. An override cannot do
+this for you: the base file's `build:` would still win, so this is a whole file
+rather than a patch on one.
+
+```yaml
+services:
+  atlas:
+    image: ghcr.io/mattia-pellin/project-atlas-file-manager:latest
+    container_name: atlas
+    ports:
+      - "8080:8000"
+    environment:
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - TVDB_API_KEY=${TVDB_API_KEY}
+      - TVDB_PIN=${TVDB_PIN}
+      - MEDIA_ROOT=/media
+      - LANG_PREFS=it,en
+      - CACHE_TTL_HOURS=24
+    volumes:
+      - /srv/plex:/media:rw
+    restart: unless-stopped
+```
+
+Tags follow the releases: `:latest`, or pin a version such as `:v2.1.1`.
 
 ## Trying it without risking a library
 
@@ -42,11 +125,14 @@ suite, so the container is pointed at a throwaway copy instead:
 
 ```bash
 scripts/sandbox-media.sh                                   # reset sandbox/media from test_media/
-MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build
+docker compose up -d --build
 ```
 
-Re-run the script whenever you want the fixtures back. The `MEDIA_DIR` override
-matters: without it, compose uses the one in your `.env` — your real library.
+No flag and nothing to remember: `sandbox/media` is what the committed
+`docker-compose.yml` mounts, so pointing the container at a real library is
+something you have to *opt into* with an override, and forgetting the override can
+only ever leave you renaming throwaway copies. Re-run the script whenever you want
+the fixtures back.
 
 ## Reporting a name that came out wrong
 
@@ -77,22 +163,50 @@ non-zero on any mismatch, and prints the ranked candidates so a case that just
 needs a hand-picked match can be closed with one `forced_key`. Neither one opens,
 creates or renames a file.
 
-## Configuration Options
-All configuration is handled via environment variables passed to the container:
-- `MEDIA_DIR` (Required): The host path to mount inside the container at `/media`.
-- `MEDIA_ROOT` (Optional): The container-side root the app is allowed to read and
-  rename inside. Default `/media`, which is the other side of the `MEDIA_DIR` mount.
-  A scan may narrow to a subdirectory of it and to nothing else; anything outside is
-  rejected with a `400`. Set it explicitly when running the backend outside Docker.
-- `TMDB_API_KEY` (Required for Movies): Your TMDB API key.
-- `TVDB_API_KEY` (Required for Series): Your TVDB v4 API key.
-- `TVDB_PIN` (Optional but recommended): Your TVDB User PIN for extended API access.
-- `PORT` (Optional): The host port the container is published on. Default is `8080`.
-  The app inside the container always listens on `8000`; this is only the left-hand
-  side of the compose port mapping.
-- `CACHE_TTL_HOURS` (Optional): How long API requests should be cached locally. Default `24`.
-- `LANG_PREFS` (Optional): Comma-separated title languages, most preferred first.
-  Default `it,en`. This is only the value the UI starts with — the language pins and
-  the confidence thresholds are overridable per request from the settings panel, and
-  `GET /api/config` is what the UI reads them from. `GET /api/keys` answers the
-  separate question of whether the two keys actually work, by using them.
+## Configuration
+
+Two things are configured, and they are configured differently:
+
+| | How | Changeable? |
+| --- | --- | --- |
+| **The library** | A bind mount whose container side is `/media` | Host side yes, `/media` no |
+| **Everything else** | Environment variables | Yes, see below |
+
+### Environment variables
+
+Passed to the container — with `-e` on `docker run`, or through the `environment:`
+block that compose fills from your `.env`.
+
+**Must be set:**
+
+| Variable | What it does |
+| --- | --- |
+| `TMDB_API_KEY` | Matches **movies**. Without it every film comes back unmatched, with a message that reads like a genuine no-match. |
+| `TVDB_API_KEY` | Matches **series**, and fetches episode titles. Same failure mode for every episode. |
+
+Both are free. TMDB: <https://www.themoviedb.org/settings/api>. TVDB v4:
+<https://thetvdb.com/api-information>.
+
+The settings panel (`Ctrl+,`) checks both keys live, by using them, and says which of
+`ok` / `invalid` / `missing` / `unreachable` each one is. A revoked key and an
+unreachable provider look identical from the grid, which is why that check exists —
+use it before concluding that a file cannot be matched.
+
+**May be set:**
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `TVDB_PIN` | *(empty)* | TVDB user PIN, for a subscriber's extended API access. Optional but recommended. |
+| `PORT` | `8080` | Host port compose publishes on — the **left** side of the mapping only. The app inside the container always listens on `8000`, and that does not move. |
+| `LANG_PREFS` | `it,en` | Title languages, most preferred first, as ISO 639-1 codes. Only the value the UI *starts* with: the chain is editable per request in the settings panel. A code neither provider knows is not an error anywhere — TMDB answers with untranslated results and TVDB falls through — so the panel validates each one as you type. |
+| `CACHE_TTL_HOURS` | `24` | How long a TMDB/TVDB response stays on disk before it is fetched again. Set it low while diagnosing a wrong match, so a corrected answer upstream is picked up on the next scan rather than a day later. |
+| `MEDIA_ROOT` | `/media` | The root the app refuses to read or rename outside of. **Leave it alone in the container** — it is the mount's container side, and the compose file pins it to `/media`. It exists as a variable for one case: running the backend outside Docker, where `/media` does not exist and every scan would return `400`. |
+
+There is no variable for the library path. See [the mount section](#the-library-is-a-mount-and-it-goes-at-media).
+
+### Not environment variables
+
+The languages, the two confidence thresholds, the analysis concurrency and the API
+cache are all in the settings panel (`Ctrl+,`) and take effect per request, so
+changing one does not mean restarting the container. `GET /api/config` is what the UI
+reads their current values from.

@@ -9,6 +9,10 @@ venv/
 # test cannot rewrite the committed fixtures. Rebuilt by scripts/sandbox-media.sh.
 sandbox/
 
+# Where a deployment points the /media mount at its own library. Machine-specific
+# by definition, and the committed compose file must keep mounting the sandbox.
+docker-compose.override.yml
+
 # Runtime artefacts
 *.log
 .pytest_cache/
