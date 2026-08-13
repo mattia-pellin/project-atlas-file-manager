@@ -165,7 +165,7 @@ deliberately `false`).
 
 | Server | Transport | Needs |
 | --- | --- | --- |
-| `github` | remote HTTP, `api.githubcopilot.com/mcp/` | A PAT in `GITHUB_MCP_PAT`, sent as `Authorization: Bearer`. A **fine-grained** PAT works — verified, 45 tools, scoped to this repo only. Toolsets pinned via `X-MCP-Toolsets`; `actions` is *not* in the default set and must stay listed explicitly. |
+| `github` | remote HTTP, `api.githubcopilot.com/mcp/` | A PAT in `GITHUB_MCP_PAT`, sent as `Authorization: Bearer`. A **fine-grained** PAT works — verified, 52 tools, scoped to this repo only. Toolsets pinned via `X-MCP-Toolsets`; `actions`, `dependabot`, `code_security` and `secret_protection` are *not* in the default set and must stay listed explicitly. |
 | `stitch` | remote HTTP, `stitch.googleapis.com/mcp` | `STITCH_API_KEY` in the environment, sent as the `X-Goog-Api-Key` header. The URL is public; only the key is secret. Key issued by <https://stitch.withgoogle.com/docs/mcp/setup/>. |
 
 **Do not click "Authenticate" in `/mcp` for `github` or `stitch`.** Neither uses
@@ -231,6 +231,14 @@ once a PR exists. Do not "fix" it by widening the PAT.
 Note that `x-accepted-github-permissions` on a response documents what the
 *endpoint* accepts; it is present on successful calls too, so it is not
 evidence of a permission failure.
+
+**Dependabot, code scanning and secret scanning are all live on this repo** and
+the PAT already reads all three — verified 2026-08-13. The `security-review`
+agent starts from them rather than from `npm audit`. Read the triage rule in
+`.claude/agents/security-review.md` before quoting a count at anyone: on that
+date 26 of the 27 open Dependabot alerts were `scope: development` in
+`frontend/package-lock.json`, and the image ships the built bundle, so they are
+not in the running container. The number that meant something was **one**.
 
 Diagnose a failing server from
 `~/.cache/claude-cli-nodejs/-home-mattia-projects-project-atlas-file-manager/mcp-logs-<server>/`
