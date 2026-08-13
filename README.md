@@ -112,7 +112,17 @@ services:
     restart: unless-stopped
 ```
 
-Tags follow the releases: `:latest`, or pin a version such as `:v2.1.1`.
+**Image tags carry no `v`**, unlike the git tags they are built from: release `v2.2.1`
+publishes `:2.2.1`, and `:v2.2.1` does not exist. Three ways to pin, loosest first:
+
+| Tag | Moves when |
+| --- | --- |
+| `:latest` | every release |
+| `:2.2` | a patch lands on 2.2 — fixes, no new behaviour |
+| `:2.2.1` | never |
+
+A deployment that pulls on a webhook wants `:latest`; one you would rather update on
+purpose wants an exact version.
 
 ## Trying it without risking a library
 
