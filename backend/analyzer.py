@@ -446,14 +446,15 @@ async def enrich_media_item(
                 if ep_id:
                     # Absent when no language in the chain has a title for this episode,
                     # in which case the default name off `episodes_raw` stands.
-                    translated_title = episode_names.get(ep_id)
-                    if translated_title:
-                        ep_title = format_smart_title(translated_title)
+                    ep_title = episode_names.get(ep_id) or ep_title
                 # Only for a single episode: the filename carries one title, so it
                 # cannot stand in for any particular member of a range.
                 if not ep_title and start_ep == end_ep and item.episode_title:
-                    ep_title = format_smart_title(item.episode_title)
-                ep_title = sanitize_name(ep_title)
+                    ep_title = item.episode_title
+                # One capitalisation rule, whichever of the three sources won. A default
+                # name off `episodes_raw` used to skip it, so a series with an Italian
+                # title got one convention and the same series without got another.
+                ep_title = sanitize_name(format_smart_title(ep_title))
                 if ep_title:
                     ep_titles.append(ep_title)
 

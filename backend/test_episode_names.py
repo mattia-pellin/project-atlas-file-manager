@@ -216,12 +216,7 @@ def _item(name: str, season: int, episode: Any) -> MediaItem:
 
 
 async def test_the_localised_title_still_reaches_the_filename(mocker) -> None:
-    """Same name the per-episode call produced, from the bulk map instead.
-
-    Title-cased, because a *translated* title goes through `format_smart_title` — note
-    the untranslated one below does not. That asymmetry predates this change and is
-    deliberately preserved: it decides the exact string on disk.
-    """
+    """Same name the per-episode call produced, from the bulk map instead."""
     _mock_series(
         mocker,
         {
@@ -240,7 +235,11 @@ async def test_the_localised_title_still_reaches_the_filename(mocker) -> None:
 
 
 async def test_an_untranslated_episode_keeps_the_default_name(mocker) -> None:
-    """The map is empty for this id, so `episodes_raw` stands — as it did on a None."""
+    """The map is empty for this id, so `episodes_raw` stands — as it did on a None.
+
+    Unchanged by the capitalisation rule, which is the ordinary case: TVDB's default
+    names are already title-cased. The one below is where the rule shows.
+    """
     _mock_series(
         mocker,
         {
@@ -256,6 +255,33 @@ async def test_an_untranslated_episode_keeps_the_default_name(mocker) -> None:
     item = await enrich_media_item(_item("Doctor Who S05E01.mkv", 5, 1), ["it", "en"])
 
     assert item.proposed_name == "Doctor Who - S05E01 - The Eleventh Hour.mkv"
+
+
+@pytest.mark.parametrize("translated", [True, False])
+async def test_one_capitalisation_rule_whichever_source_the_title_came_from(mocker, translated: bool) -> None:
+    """The same string must land on disk the same way, translated or not.
+
+    A default name off `episodes_raw` used to skip `format_smart_title` while a
+    translated one went through it, so `DEATH ON THE NILE` was written shouting in
+    English and `Assassinio sul Nilo` title-cased in Italian — one series, two
+    conventions, decided by whether TVDB happened to carry a translation.
+    """
+    shouted = "DEATH ON THE NILE"
+    _mock_series(
+        mocker,
+        {
+            "tvdb_id": 78804,
+            "name": "Doctor Who",
+            "season_episode_counts": {5: 13},
+            "episodes_raw": [_episode(1452891, 5, 1, "placeholder" if translated else shouted)],
+            "year": None,
+        },
+        {1452891: shouted} if translated else {},
+    )
+
+    item = await enrich_media_item(_item("Doctor Who S05E01.mkv", 5, 1), ["it", "en"])
+
+    assert item.proposed_name == "Doctor Who - S05E01 - Death on the Nile.mkv"
 
 
 async def test_a_range_takes_every_title_from_the_one_map(mocker) -> None:

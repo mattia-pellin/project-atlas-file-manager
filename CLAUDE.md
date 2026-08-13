@@ -945,6 +945,16 @@ not have. A word the *source* wrote in full capitals is now left alone — `SG-1
 `(US)`, `Rocky II` — unless the whole title is capitals, which is shouting rather
 than an acronym and is still title-cased (`THE MATRIX` → `The Matrix`).
 
+**Every episode title goes through it, whichever of the three sources won** — the
+localised name from `get_episode_names`, the default name off `episodes_raw`, or the
+one guessit read out of the filename. The default name used to skip it, so a series
+TVDB carries in Italian got one convention and the same series without got another:
+`DEATH ON THE NILE` was written shouting in English and title-cased in Italian, on
+neighbouring rows of the same season. It moves nothing in the sixteen fixtures —
+TVDB's default names are already title-cased there — which is exactly why the rule
+had to be pinned by a test rather than by a live run
+(`test_one_capitalisation_rule_whichever_source_the_title_came_from`).
+
 ### How the scoring works
 
 `matching.py`, and it is deliberately dull: `score = title_similarity ×
