@@ -34,7 +34,7 @@ neither should reappear.)
 | Dev servers | `/dev` |
 | Sync `.venv/` to the lock | `.venv/bin/uv sync` |
 | Reset the writable fixture copy | `scripts/sandbox-media.sh` |
-| Container, against that copy | `MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build` |
+| Container, against that copy | `GIT_SHA=$(git rev-parse HEAD) MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build` |
 
 The dev backend runs on **:8001** (Vite proxies `/api` there, see
 `frontend/vite.config.ts`); the production container serves both on **:8000**
@@ -1074,6 +1074,24 @@ change rather than swept up later, without being asked:
   points at nothing. The subject says what changed and why it is different, not
   which files moved (`fix(ui): hold the verb widths so the bar stops jumping`,
   not `update CommandBar.tsx`). Do not push and do not `git add .env`.
+- **Reload the container**, so the change can actually be tried. A gate that is
+  green says the code does what its tests say; it does not say the thing feels
+  right, and a visual change in particular cannot be signed off from a test
+  run. Rebuild after every change that reaches the app — frontend *or* backend,
+  since one container serves both — and say in the reply that it is up and what
+  to look at. A docs-, agent- or CI-only change has nothing to reload; say that
+  instead of skipping it silently.
+
+  ```
+  GIT_SHA=$(git rev-parse HEAD) MEDIA_DIR="$PWD/sandbox/media" docker compose up -d --build
+  ```
+
+  `MEDIA_DIR` is not optional — see the warning in **Commands**. `GIT_SHA` is,
+  but pass it anyway: it is what lets the Informazioni panel name the commit,
+  which is the whole point of reloading for someone else to check. Do **not**
+  re-run `scripts/sandbox-media.sh` as part of a reload — the fixtures are only
+  reset when they are dirty, and doing it automatically throws away whatever was
+  half-triaged in the tab that is open.
 
 Granularity is the point. This repo's history has several commits worth of work
 squashed into one — `feat(ui): the third review round` is sixty-five files —
