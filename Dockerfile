@@ -50,7 +50,7 @@ COPY backend/ ./backend/
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Default environment variables
-ENV PORT=8000
+ENV PORT=8080
 # The only tree the app may read or rename inside. `backend/paths.py` enforces it.
 ENV MEDIA_ROOT=/media
 ENV TMDB_API_KEY=""
@@ -59,7 +59,7 @@ ENV CACHE_TTL_HOURS=24
 ENV FRONTEND_DIR=/app/frontend/dist
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8080
 
 # Run the application
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8080"]

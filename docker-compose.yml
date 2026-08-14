@@ -7,9 +7,10 @@ services:
         # what a local build normally gets: `GIT_SHA=$(git rev-parse HEAD)` fills it in.
         GIT_SHA: ${GIT_SHA:-}
     container_name: plex-file-manager
-    # Published on 8080; the app inside the container always listens on 8000.
+    # Published on 8080; the app inside the container always listens on 8080 too —
+    # 8080 is this project's default for plain HTTP on a container, 8443 for HTTPS.
     ports:
-      - "${PORT:-8080}:8000"
+      - "${PORT:-8080}:8080"
     environment:
       - TMDB_API_KEY=${TMDB_API_KEY}
       - TVDB_API_KEY=${TVDB_API_KEY}

@@ -37,9 +37,18 @@ neither should reappear.)
 | Container, against that copy | `GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build` |
 
 The dev backend runs on **:8001** (Vite proxies `/api` there, see
-`frontend/vite.config.ts`); the production container serves both on **:8000**
+`frontend/vite.config.ts`); the production container serves both on **:8080**
 internally and is **published on :8080** (`PORT` in `.env`, left side of the
-compose mapping only — the `EXPOSE`/`CMD` port in the image stays 8000).
+compose mapping — the `EXPOSE`/`CMD` port in the image is 8080 too, and the two
+now agree). 8080 is this project's convention for plain HTTP on a container;
+8443 is the equivalent for HTTPS, on the rare occasion this app terminates TLS
+itself rather than sitting behind a reverse proxy that does.
+
+Before this, the internal port was 8000 while the published one was 8080, and
+the compose mapping (`"${PORT:-8080}:8000"`) bridged the two — a real but
+easy-to-misread indirection, since the two numbers looked related but weren't
+the same fact. `docker-compose.yml`'s comment, `README.md`'s `PORT` row and
+this paragraph all describe the same single number now.
 
 **The library is a mount, not a variable, and its container side is fixed at
 `/media`.** There is no `MEDIA_DIR` any more: it was a host path in `.env`, it

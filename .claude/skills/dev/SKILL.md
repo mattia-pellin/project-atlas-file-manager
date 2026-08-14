@@ -32,9 +32,10 @@ which is why a missing key looks exactly like "the API is down".
 8001 is not arbitrary: `frontend/vite.config.ts` proxies `/api` to
 `http://127.0.0.1:8001`. If you change the port, change the proxy too.
 
-Port 8000 is what the container serves in production, where the built
+Port 8080 is what the container serves in production, where the built
 frontend is mounted as static files by `backend/main.py` — published on the
-host as 8080. In dev, Vite serves the frontend instead, so both stay free.
+host as 8080 too, same number end to end. In dev, Vite serves the frontend
+instead, so both stay free.
 
 ## 2. Frontend — port 5173
 

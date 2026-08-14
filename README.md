@@ -37,7 +37,7 @@ last step of the job rather than at the first.
 
 ```bash
 docker run -d --name atlas \
-  -p 8080:8000 \
+  -p 8080:8080 \
   -v /srv/plex:/media:rw \
   -e TMDB_API_KEY=your_tmdb_api_key \
   -e TVDB_API_KEY=your_tvdb_api_key \
@@ -45,8 +45,9 @@ docker run -d --name atlas \
   ghcr.io/mattia-pellin/project-atlas-file-manager:latest
 ```
 
-The app listens on **8000** inside the container, always. `8080` above is only the
-host side of the mapping — publish it wherever you like. Then open
+The app listens on **8080** inside the container, always — this project's convention
+for plain HTTP on a container, with 8443 as the equivalent for HTTPS. The left side of
+the `-p` mapping above is only the host side — publish it wherever you like. Then open
 <http://localhost:8080>.
 
 ## Quick start — Docker Compose
@@ -99,7 +100,7 @@ services:
     image: ghcr.io/mattia-pellin/project-atlas-file-manager:latest
     container_name: atlas
     ports:
-      - "8080:8000"
+      - "8080:8080"
     environment:
       - TMDB_API_KEY=${TMDB_API_KEY}
       - TVDB_API_KEY=${TVDB_API_KEY}
@@ -207,7 +208,7 @@ use it before concluding that a file cannot be matched.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `TVDB_PIN` | *(empty)* | TVDB user PIN, for a subscriber's extended API access. Optional but recommended. |
-| `PORT` | `8080` | Host port compose publishes on — the **left** side of the mapping only. The app inside the container always listens on `8000`, and that does not move. |
+| `PORT` | `8080` | Host port compose publishes on — the **left** side of the mapping. The app inside the container also listens on `8080`: this project's convention for a container is plain HTTP on `8080`, HTTPS (handled by a reverse proxy, never by this app) on `8443`. |
 | `LANG_PREFS` | `it,en` | Title languages, most preferred first, as ISO 639-1 codes. Only the value the UI *starts* with: the chain is editable per request in the settings panel. A code neither provider knows is not an error anywhere — TMDB answers with untranslated results and TVDB falls through — so the panel validates each one as you type. |
 | `CACHE_TTL_HOURS` | `24` | How long a TMDB/TVDB response stays on disk before it is fetched again. Fractions count — `0.5` is thirty minutes — and `0` means reuse nothing, which is what you want while chasing a wrong match: a corrected answer upstream then shows up on the next scan instead of tomorrow. Anything that is not a positive number falls back to `24` rather than taking the app down with it. Two things deliberately do not follow it: a "nothing matched" answer is capped at one hour (it follows this value *down*, never up, because it is the answer most likely to be wrong for a reason outside this app), and the TVDB auth token keeps its own 24h, being a credential rather than a payload. |
 | `MEDIA_ROOT` | `/media` | The root the app refuses to read or rename outside of. **Leave it alone in the container** — it is the mount's container side, and the compose file pins it to `/media`. It exists as a variable for one case: running the backend outside Docker, where `/media` does not exist and every scan would return `400`. |
