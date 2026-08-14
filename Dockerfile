@@ -21,7 +21,7 @@ FROM python:3.14-slim AS backend-builder
 # Pinned to the same uv the dev group installs, so the image and the developer
 # resolve with identical logic. It stays in this stage — the 52 MB binary has
 # no business in the published image.
-COPY --from=ghcr.io/astral-sh/uv:0.12.2 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.4 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
