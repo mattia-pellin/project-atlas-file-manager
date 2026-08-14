@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
+import { createColumnHelper, flexRender, tableFeatures, useTable } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MediaItem } from '../api';
 import { cellText, choiceFromKey, choiceLabel, COLUMNS, ColumnId, ColumnSpec, columnIndex } from '../lib/columns';
@@ -47,7 +47,10 @@ const MIN_COLUMN_WIDTH = 44;
 
 const TYPE_COLUMN = columnIndex('media_type');
 
-const helper = createColumnHelper<MediaItem>();
+// No feature registered: the table supplies only the core row model, which is
+// always on in v9. Sorting, selection etc. are the reducer's job, not TanStack's.
+const features = tableFeatures({});
+const helper = createColumnHelper<typeof features, MediaItem>();
 
 const InfoGlyph: React.FC = () => (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
@@ -91,11 +94,11 @@ export const Grid = React.forwardRef<HTMLDivElement, GridProps>(function Grid(
         []
     );
 
-    const table = useReactTable({
+    const table = useTable({
+        features,
         data: state.rows,
         columns,
-        getRowId: (row) => row.id,
-        getCoreRowModel: getCoreRowModel()
+        getRowId: (row) => row.id
     });
     const rows = table.getRowModel().rows;
 
@@ -426,7 +429,7 @@ export const Grid = React.forwardRef<HTMLDivElement, GridProps>(function Grid(
                                     transform: `translateY(${virtualRow.start}px)`
                                 }}
                             >
-                                {row.getVisibleCells().map((cell, columnIdx) => {
+                                {row.getAllCells().map((cell, columnIdx) => {
                                     const spec = COLUMNS[columnIdx];
                                     const text = spec.id === 'status' ? '' : cellText(item, spec.id);
                                     const isFocused = isFocusRow && state.focusColumn === columnIdx;

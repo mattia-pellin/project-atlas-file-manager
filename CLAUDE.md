@@ -120,16 +120,10 @@ moves when pydantic does.
 
 ### Frontend majors held back on purpose
 
-`npm outdated` will keep naming these three. Each was checked and the newer
+`npm outdated` will keep naming these two. Each was checked and the newer
 major is a real behaviour change, not a lockfile refresh — re-verify the peer
 range before trying again, don't just bump:
 
-- **`@tanstack/react-table` stays on 8.** v9 renames `useReactTable` to
-  `useTable`, makes `data`/`columns` readonly, and requires explicit feature
-  registration instead of shipping everything by default. `Grid.tsx` is the
-  one file the whole keyboard model renders through; rewriting its table
-  setup is a change to make deliberately; with a full read of the v9 guide,
-  not as a side effect of chasing a version number.
 - **`eslint` stays on 9.x, `eslint-plugin-react-hooks` on 5.x.** The plugin's
   6.x absorbed the React Compiler ESLint rules into its `recommended` config
   — `set-state-in-effect`, `incompatible-library` — and turning them on flags
@@ -142,6 +136,19 @@ range before trying again, don't just bump:
   available to `eslint` — has no release yet whose peer range reaches past
   `<6.1.0`. Bumping `typescript` alone would silently stop type-aware linting
   rather than error, which is worse than not bumping it.
+
+`@tanstack/react-table` **was** on this list and no longer is — bumped 8→9 once
+v9 left beta. `useReactTable` is `useTable` now, and every feature beyond the
+core row model is opt-in via a `features` object instead of shipping by
+default. `Grid.tsx` only ever used `getCoreRowModel`, `createColumnHelper` and
+`flexRender` — no sorting, filtering or pagination through react-table itself
+(sorting is the reducer's own action) — so the migration is `tableFeatures({})`
+plus `createColumnHelper<typeof features, MediaItem>()`, and `row.getVisibleCells()`
+became `row.getAllCells()`, since that getter now lives behind a column-visibility
+feature this app never registers and never needed — every column is always
+visible here. Verified beyond the type-check and the 218-test suite: a live
+scan against the sandbox fixtures, arrow-key focus movement, and both overlays
+opening and closing, with an empty browser console throughout.
 
 ### Python 3.14
 
@@ -667,7 +674,9 @@ Rebuilt from nothing in the redesign, because the tool it replaced was a Google
 Sheet: not pretty, but operable entirely from the keyboard, and that fluency is
 the feature. MUI, `@mui/x-data-grid`, emotion, framer-motion and dnd-kit are all
 gone; the runtime dependencies are React plus `@tanstack/react-table` and
-`@tanstack/react-virtual`. The bundle went from ~1 MB to 258 kB.
+`@tanstack/react-virtual`. The bundle went from ~1 MB to 258 kB at the redesign,
+and sits at 325 kB (100 kB gzipped) after the react-table 8→9 bump, which pulled
+in `@tanstack/react-store` as a new transitive dependency for its state layer.
 
 One screen, full-bleed, no sidebar: a 44px command bar over the grid. Everything
 else — triage, settings, keymap, command palette, the rename confirmation — is an

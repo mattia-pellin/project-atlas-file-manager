@@ -1,7 +1,7 @@
 {
     "name": "plex-file-manager-frontend",
     "private": true,
-    "version": "2.4.0",
+    "version": "2.4.1",
     "type": "module",
     "scripts": {
         "dev": "vite",
@@ -14,7 +14,7 @@
         "preview": "vite preview"
     },
     "dependencies": {
-        "@tanstack/react-table": "^8.21.3",
+        "@tanstack/react-table": "^9.1.2",
         "@tanstack/react-virtual": "^3.14.9",
         "react": "^19.2.8",
         "react-dom": "^19.2.8"
