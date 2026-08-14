@@ -39,6 +39,16 @@ async def scan_directory(request: ScanRequest):
     except PathNotAllowed as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    # A missing or non-directory path used to fall straight through to `get_media_files`,
+    # which treats "not a directory" the same as "a directory with nothing in it" and
+    # returns no files either way — so a typo'd path and an empty library read as the
+    # identical "Nessun file multimediale in quella cartella". Caught here instead, so
+    # the two are told apart before the walk ever starts.
+    if not scan_root.exists():
+        raise HTTPException(status_code=400, detail=f"'{request.directory}' non esiste")
+    if not scan_root.is_dir():
+        raise HTTPException(status_code=400, detail=f"'{request.directory}' non è una cartella")
+
     try:
         # Fast iteration over local files
         for file_path in get_media_files(scan_root):
