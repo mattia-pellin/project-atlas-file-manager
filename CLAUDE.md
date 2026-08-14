@@ -109,6 +109,31 @@ python3.14 -m venv .venv
 is correct and must not be "fixed": `pydantic` pins it with `==`, so it only
 moves when pydantic does.
 
+### Frontend majors held back on purpose
+
+`npm outdated` will keep naming these three. Each was checked and the newer
+major is a real behaviour change, not a lockfile refresh — re-verify the peer
+range before trying again, don't just bump:
+
+- **`@tanstack/react-table` stays on 8.** v9 renames `useReactTable` to
+  `useTable`, makes `data`/`columns` readonly, and requires explicit feature
+  registration instead of shipping everything by default. `Grid.tsx` is the
+  one file the whole keyboard model renders through; rewriting its table
+  setup is a change to make deliberately; with a full read of the v9 guide,
+  not as a side effect of chasing a version number.
+- **`eslint` stays on 9.x, `eslint-plugin-react-hooks` on 5.x.** The plugin's
+  6.x absorbed the React Compiler ESLint rules into its `recommended` config
+  — `set-state-in-effect`, `incompatible-library` — and turning them on flags
+  four effects in `App.tsx`, `SettingsPanel.tsx`, `TriageOverlay.tsx` and
+  `Grid.tsx` that are deliberate, tested behaviour in a codebase that does not
+  run the compiler. `eslint-plugin-react-hooks@5` also caps its `eslint` peer
+  at `^9`, which is the mechanical reason the two holds travel together.
+- **`typescript` stays on 5.9.** 7.0 is the native-compiler rewrite, and
+  `typescript-eslint` — the package that makes `tsc`'s type information
+  available to `eslint` — has no release yet whose peer range reaches past
+  `<6.1.0`. Bumping `typescript` alone would silently stop type-aware linting
+  rather than error, which is worse than not bumping it.
+
 ### Python 3.14
 
 The backend runs unchanged on 3.14 — verified: identical test results on 3.13
