@@ -39,21 +39,22 @@ export interface ColumnSpec {
 
 export const COLUMNS: readonly ColumnSpec[] = [
     // Wide enough to hold the reorder button in the header as well as the dot below it.
-    { id: 'status', header: '', width: 40, editable: false, align: 'center' },
-    { id: 'original_name', header: 'Su disco', width: 260, grow: true, editable: false },
+    { id: 'status', header: '', width: 40, editable: false, mono: true, align: 'center' },
+    { id: 'original_name', header: 'Su disco', width: 260, grow: true, editable: false, mono: true },
     // Wide enough for both segments of the toggle to be legible side by side. A choice
     // cell is not typed into, so the width is the control's, not the longest value's.
     {
         id: 'media_type',
         header: 'Tipo',
-        width: 124,
+        width: 148,
         editable: true,
+        mono: true,
         align: 'center',
         headerAlign: 'center',
         choices: ['movie', 'episode'],
         choiceLabels: { movie: 'film', episode: 'episodio' }
     },
-    { id: 'clean_title', header: 'Titolo', width: 210, editable: true },
+    { id: 'clean_title', header: 'Titolo', width: 210, editable: true, mono: true },
     // Centred on both halves. A year is always four digits, so there are no ragged
     // edges to line up and nothing is gained by pinning it right — while a heading
     // sitting over a column that does not share its alignment reads as a mistake.
@@ -62,7 +63,7 @@ export const COLUMNS: readonly ColumnSpec[] = [
     // floating in the middle of a 50px box, so this one takes the cells' alignment.
     { id: 'season', header: 'S', width: 50, editable: true, mono: true, align: 'right' },
     { id: 'episode', header: 'E', width: 66, editable: true, mono: true, align: 'right', headerAlign: 'center' },
-    { id: 'proposed_name', header: 'Nome proposto', width: 320, grow: true, editable: true },
+    { id: 'proposed_name', header: 'Nome proposto', width: 320, grow: true, editable: true, mono: true },
     // The score used to be a badge floated inside the proposed name, where it competed
     // with the name for the same pixels and disappeared as soon as the name was long.
     // Its own column also gives it somewhere to hang the explanation of what it means.

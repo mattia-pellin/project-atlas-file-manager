@@ -873,6 +873,23 @@ nothing is gained by pinning it right, while a heading sitting over a column tha
 not share its alignment reads as a mistake. `S`, `E` and `C.S.` stay right-aligned
 because their values *are* ragged.
 
+**Every column is set in `--font-mono`** (`ColumnSpec.mono`, `lib/columns.ts` — the
+numeric columns had it already, `Su disco`, `Nome proposto`, `Tipo`, `Titolo` and the
+status column gained it together). `Su disco`/`Nome proposto` are the reason: the two
+names are meant to be compared character by character, and a proportional face lets
+two different strings land at the same pixel width — exactly the illusion a rename
+tool must not create. The rest of the row follows so the grid reads as one typeface
+rather than the name columns looking like a patch. `JetBrains Mono` was chosen over
+three Google Fonts alternatives (`IBM Plex Mono`, `Roboto Mono`, `Space Mono`) sampled
+side by side on the fixture names: it is already loaded (it was the numeric columns'
+font from the start), so this costs no new request, and its `0`/`O` and `1`/`l`/`I`
+stay the most distinct of the four at this size. It is also the widest of the four,
+and `Tipo` (`ColumnSpec.width`) had to grow from 124px to 148px because of it — at the
+old width `Episodio` clipped silently to `Episodi`, since `.choice` hides overflow
+without an ellipsis. `.choice-option` picks the font up through `font-family: inherit`
+rather than a rule of its own, so the two never drift apart by accident; the width is
+the only per-column cost this bump has, and it is the number to revisit first if a
+future column feels tight.
 **Editing happens on the text that is already there.** The editor used to be a bordered
 input on its own background, inset in the cell, so a second rectangle appeared and its
 padding shifted every character one notch right the moment you pressed a key — the value
