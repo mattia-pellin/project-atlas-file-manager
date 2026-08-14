@@ -1,7 +1,7 @@
 {
     "name": "plex-file-manager-frontend",
     "private": true,
-    "version": "2.3.10",
+    "version": "2.3.11",
     "type": "module",
     "scripts": {
         "dev": "vite",
@@ -31,7 +31,7 @@
         "eslint-plugin-react-hooks": "^5.2.0",
         "eslint-plugin-react-refresh": "^0.5.4",
         "globals": "^17.11.0",
-        "jsdom": "^25.0.1",
+        "jsdom": "^29.1.1",
         "typescript": "^5.2.2",
         "typescript-eslint": "^8.67.0",
         "vite": "^8.2.1",
